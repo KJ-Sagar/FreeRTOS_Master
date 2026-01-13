@@ -1,0 +1,15 @@
+{
+  "workspace": {
+    "path": "${workspaceFolder}/Test/CMock/test/iar/iar_v5/cmock_demo.eww"
+  },
+  "workspaces": {
+    "${workspaceFolder}/Test/CMock/test/iar/iar_v5/cmock_demo.eww": {
+      "configs": {
+        "${workspaceFolder}/Test/CMock/test/iar/iar_v5/cmock_demo.ewp": "RAM_Debug"
+      },
+      "selected": {
+        "path": "${workspaceFolder}/Test/CMock/test/iar/iar_v5/cmock_demo.ewp"
+      }
+    }
+  }
+}
