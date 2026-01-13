@@ -16,6 +16,15 @@
 #define SOMEIP_SERVICE_ID         0x1234
 #define SOMEIP_METHOD_ID          0x0001
 
+/* SOME/IP Method IDs */
+#define SOMEIP_METHOD_GET_TEMPERATURE   0x0001
+#define SOMEIP_METHOD_GET_RPM           0x0002
+#define SOMEIP_METHOD_GET_STATUS        0x0003
+
+/* SOME/IP Return Codes */
+#define SOMEIP_E_OK                     0x00
+#define SOMEIP_E_UNKNOWN_METHOD         0x01
+#define SOMEIP_E_NOT_AVAILABLE          0x02
 /* ---- TYPE DEFINITIONS FIRST ---- */
 typedef struct __attribute__((packed))
 {
