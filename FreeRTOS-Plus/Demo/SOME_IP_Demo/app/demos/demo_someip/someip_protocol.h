@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include "FreeRTOS_IP.h"
 
+#ifndef SOMEIP_PROTOCOL_H
+#define SOMEIP_PROTOCOL_H
 /* SOME/IP protocol constants */
 #define SOMEIP_PROTOCOL_VERSION   0x01
 #define SOMEIP_INTERFACE_VERSION  0x01
@@ -29,5 +31,7 @@ typedef struct __attribute__((packed))
 } someip_header_t;
 
 /* ---- FUNCTION DECLARATIONS AFTER ---- */
-void someip_hton(someip_header_t *h);
+void someip_FreeRTOS_hton(someip_header_t *h);
 void someip_FreeRTOS_ntohs(someip_header_t *h);
+        
+#endif /* SOMEIP_PROTOCOL_H */

@@ -10,7 +10,7 @@ void someip_hton(someip_header_t *h)
     h->session_id = FreeRTOS_htons(h->session_id);
 }
 
-void someip_FreeRTOS_ntohs(someip_header_t *h)
+void someip_ntoh(someip_header_t *h)
 {
     h->service_id = FreeRTOS_ntohs(h->service_id);
     h->method_id  = FreeRTOS_ntohs(h->method_id);
