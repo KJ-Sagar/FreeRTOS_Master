@@ -17,7 +17,11 @@ static void someip_server_task(void *arg)
     struct freertos_sockaddr addr;
     socklen_t addrlen = sizeof(addr);
 
-    addr.sin_port = htons(SOMEIP_PORT);
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = FREERTOS_AF_INET;
+    addr.sin_port   = FreeRTOS_htons(SOMEIP_PORT);
+    addr.sin_address.ulIP_IPv4 = FreeRTOS_GetIPAddress();
+
 
     server = FreeRTOS_socket(
         FREERTOS_AF_INET,
@@ -25,16 +29,29 @@ static void someip_server_task(void *arg)
         FREERTOS_IPPROTO_TCP
     );
 
-    FreeRTOS_bind(server, &addr, sizeof(addr));
-    FreeRTOS_listen(server, 1);
+    // Ensure the socket was created successfully.
+    configASSERT(server != FREERTOS_INVALID_SOCKET);
+    FreeRTOS_printf(("SOMEIP: Socket created\r\n"));
 
+    // Bind the socket to the port.
+    FreeRTOS_bind(server, &addr, sizeof(addr));
+    FreeRTOS_printf(("SOMEIP: Bound to port %d\r\n", SOMEIP_PORT));
+    
+    // Listen for incoming connections.
+    FreeRTOS_listen(server, 1);
+    FreeRTOS_printf(("SOMEIP: Listening...\r\n"));
+    
+    // Accept a client connection.
     client = FreeRTOS_accept(server, &addr, &addrlen);
+    FreeRTOS_printf(("SOMEIP: Client connected\r\n"));
+
 
     for (;;)
     {
         someip_header_t req;
         FreeRTOS_recv(client, &req, sizeof(req), 0);
         someip_ntoh(&req);
+        FreeRTOS_printf(("SOMEIP: Request received\r\n"));
 
         int32_t temperature = 250; // 25.0 C
         temperature = htonl(temperature);
@@ -51,6 +68,7 @@ static void someip_server_task(void *arg)
 
 void someip_server_start(void)
 {
+    FreeRTOS_printf( ( "SOMEIP: Server start requested\r\n" ) );
     xTaskCreate(
         someip_server_task,
         "SOMEIP_SERVER",
