@@ -1,4 +1,7 @@
-static inline void someip_hton(someip_header_t *h)
+#include "someip_protocol.h"
+#include "FreeRTOS_IP.h"
+
+void someip_hton(someip_header_t *h)
 {
     h->service_id = htons(h->service_id);
     h->method_id  = htons(h->method_id);
@@ -7,7 +10,7 @@ static inline void someip_hton(someip_header_t *h)
     h->session_id = htons(h->session_id);
 }
 
-static inline void someip_ntoh(someip_header_t *h)
+void someip_ntoh(someip_header_t *h)
 {
     h->service_id = ntohs(h->service_id);
     h->method_id  = ntohs(h->method_id);

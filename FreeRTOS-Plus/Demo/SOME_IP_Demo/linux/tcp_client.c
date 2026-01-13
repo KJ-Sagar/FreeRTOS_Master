@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <signal.h>
+#include "FreeRTOS_IP.h"
 
 #define SERVER_IP   "10.0.0.1"
 #define SERVER_PORT 5001

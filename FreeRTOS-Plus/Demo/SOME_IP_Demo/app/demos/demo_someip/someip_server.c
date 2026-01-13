@@ -1,23 +1,29 @@
-#include "someip_server.h"
-#include "someip_protocol.h"
-
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
+#include "FreeRTOS_IP.h"
 
-#define SOMEIP_PORT  30509
+#include "someip_server.h"
+#include "someip_protocol.h"
+
+
+#define SOMEIP_PORT 30509
 
 static void someip_server_task(void *arg)
 {
+    (void)arg;
+
     Socket_t server, client;
     struct freertos_sockaddr addr;
     socklen_t addrlen = sizeof(addr);
 
-    addr.sin_port = FreeRTOS_htons(SOMEIP_PORT);
+    addr.sin_port = htons(SOMEIP_PORT);
 
-    server = FreeRTOS_socket(FREERTOS_AF_INET,
-                             FREERTOS_SOCK_STREAM,
-                             FREERTOS_IPPROTO_TCP);
+    server = FreeRTOS_socket(
+        FREERTOS_AF_INET,
+        FREERTOS_SOCK_STREAM,
+        FREERTOS_IPPROTO_TCP
+    );
 
     FreeRTOS_bind(server, &addr, sizeof(addr));
     FreeRTOS_listen(server, 1);
@@ -27,11 +33,11 @@ static void someip_server_task(void *arg)
     for (;;)
     {
         someip_header_t req;
-        FreeRTOS_recv(client, &req, sizeof(req), FREERTOS_MSG_WAITALL);
+        FreeRTOS_recv(client, &req, sizeof(req), 0);
         someip_ntoh(&req);
 
         int32_t temperature = 250; // 25.0 C
-        temperature = FreeRTOS_htonl(temperature);
+        temperature = htonl(temperature);
 
         someip_header_t resp = req;
         resp.message_type = SOMEIP_MSG_RESPONSE;
@@ -45,10 +51,12 @@ static void someip_server_task(void *arg)
 
 void someip_server_start(void)
 {
-    xTaskCreate(someip_server_task,
-                "SOMEIP_SERVER",
-                configMINIMAL_STACK_SIZE * 4,
-                NULL,
-                tskIDLE_PRIORITY + 1,
-                NULL);
+    xTaskCreate(
+        someip_server_task,
+        "SOMEIP_SERVER",
+        configMINIMAL_STACK_SIZE * 4,
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        NULL
+    );
 }

@@ -6,14 +6,24 @@
 #include "demo_echo.h"
 #include "tcp_heartbeat_demo.h"
 
+#include "demo_someip/demo_someip.h"
+
+/*-----------------------------------------------------------*/     
+
 void vApplicationStart( void )
 {
-#if DEMO_HEARTBEAT
+#if DEMO_SOMEIP
+    vStartSomeIPDemo();
+
+#elif DEMO_HEARTBEAT
     vStartTCPHeartbeatDemo();
+
 #elif DEMO_ECHO
     vStartEchoDemo();
+
 #else
     FreeRTOS_printf( ( "APP: No demo selected\r\n" ) );
 #endif
 }
+
 /*-----------------------------------------------------------*/

@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <signal.h>
+#include "FreeRTOS_IP.h"
 
 #define SERVER_PORT 5001
 #define BUF_SIZE 512

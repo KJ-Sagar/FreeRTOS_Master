@@ -1,5 +1,6 @@
 #include "app_config.h"
 #include "demo_selector.h"
+#include "FreeRTOS_IP.h"
 
 void vStartNetworkRole( void )
 {

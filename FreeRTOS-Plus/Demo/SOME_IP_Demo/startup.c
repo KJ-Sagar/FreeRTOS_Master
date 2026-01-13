@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "FreeRTOS_IP.h"
 
 extern void vPortSVCHandler( void );
 extern void xPortPendSVHandler( void );

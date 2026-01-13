@@ -28,6 +28,7 @@ extern "C" {
 #endif
 
 #include <sys/types.h>
+#include "FreeRTOS_IP.h"
 
 void uart_init( void );
 #ifndef __PICOLIBC__

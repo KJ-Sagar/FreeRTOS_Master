@@ -79,7 +79,7 @@ static void prvTCPHeartbeatTask( void * pvParameters )
         FreeRTOS_inet_addr( HEARTBEAT_SERVER_IP );
 /*
         xServerAddress.sin_address.ulIP_IPv4 = FreeRTOS_inet_addr( HEARTBEAT_SERVER_IP );
-        xServerAddress.sin_port = FreeRTOS_htons( HEARTBEAT_SERVER_PORT );
+        xServerAddress.sin_port = htons( HEARTBEAT_SERVER_PORT );
 */
         FreeRTOS_printf( ( "HB: Connecting to %s:%d\r\n",
                             HEARTBEAT_SERVER_IP,

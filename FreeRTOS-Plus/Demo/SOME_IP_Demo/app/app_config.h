@@ -6,8 +6,10 @@
 #define APP_ROLE_SERVER     1
 
 /* Demo selection (ONLY ONE should be 1) */
-#define DEMO_ECHO           0
-#define DEMO_HEARTBEAT      1
+#define DEMO_SOMEIP     1
+#define DEMO_HEARTBEAT  0
+#define DEMO_ECHO       0
+
 
 /*Server port*/
 #define APP_SERVER_PORT    5001

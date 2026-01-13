@@ -26,6 +26,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "FreeRTOS_IP.h"
 
 #include "FreeRTOSConfig.h"
 #include "FreeRTOSIPConfig.h"

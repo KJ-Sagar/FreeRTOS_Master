@@ -52,7 +52,7 @@ static void prvEchoServerTask( void * pvParameters )
 
     /* Bind socket to port */
     memset( &xBindAddress, 0, sizeof( xBindAddress ) );
-    xBindAddress.sin_port = FreeRTOS_htons( ECHO_SERVER_PORT );
+    xBindAddress.sin_port = htons( ECHO_SERVER_PORT );
 
     FreeRTOS_bind( xListenSocket,
                    &xBindAddress,

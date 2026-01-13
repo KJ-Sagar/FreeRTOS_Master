@@ -2,6 +2,7 @@
 #include "app_config.h"
 #include "demo_echo.h"
 #include "demo_heartbeat.h"
+#include "FreeRTOS_IP.h"
 
 void vSelectAndStartDemo( void )
 {

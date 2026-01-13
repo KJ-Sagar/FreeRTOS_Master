@@ -60,12 +60,6 @@ SOURCE_FILES += \
     app/demos/demo_echo_server.c \
     app/demos/demo_heartbeat.c
 
-# --- SOME/IP demo ---
-SOURCE_FILES += \
-    app/demos/demo_someip/demo_someip.c \
-    app/demos/demo_someip/someip_server.c \
-    app/demos/demo_someip/someip_protocol.c
-
 # --- Existing FreeRTOS TCP demos reused ---
 SOURCE_FILES += \
     TCPEchoClient_SingleTasks.c \

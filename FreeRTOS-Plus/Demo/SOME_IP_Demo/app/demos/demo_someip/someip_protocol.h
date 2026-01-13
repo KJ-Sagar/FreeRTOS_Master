@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 
+/* SOME/IP protocol constants */
 #define SOMEIP_PROTOCOL_VERSION   0x01
 #define SOMEIP_INTERFACE_VERSION  0x01
 
@@ -9,6 +10,10 @@
 
 #define SOMEIP_RETURN_OK          0x00
 
+#define SOMEIP_SERVICE_ID         0x1234
+#define SOMEIP_METHOD_ID          0x0001
+
+/* ---- TYPE DEFINITIONS FIRST ---- */
 typedef struct __attribute__((packed))
 {
     uint16_t service_id;
@@ -21,3 +26,7 @@ typedef struct __attribute__((packed))
     uint8_t  message_type;
     uint8_t  return_code;
 } someip_header_t;
+
+/* ---- FUNCTION DECLARATIONS AFTER ---- */
+void someip_hton(someip_header_t *h);
+void someip_ntoh(someip_header_t *h);

@@ -156,7 +156,7 @@
         /* Echo requests are sent to the echo server.  The address of the echo
          * server is configured by the constants configECHO_SERVER_ADDR0 to
          * configECHO_SERVER_ADDR3 in FreeRTOSConfig.h. */
-        xEchoServerAddress.sin_port = FreeRTOS_htons( echoECHO_PORT );
+        xEchoServerAddress.sin_port = htons( echoECHO_PORT );
 
         #if defined( ipconfigIPv4_BACKWARD_COMPATIBLE ) && ( ipconfigIPv4_BACKWARD_COMPATIBLE == 0 )
         {

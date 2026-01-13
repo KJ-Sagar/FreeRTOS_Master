@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "FreeRTOS_IP.h"
 
 #define SERVER_PORT 5001
 #define BUF_SIZE 512
