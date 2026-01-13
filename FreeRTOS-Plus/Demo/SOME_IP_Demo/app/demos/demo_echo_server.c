@@ -88,8 +88,8 @@ static void prvEchoServerTask( void * pvParameters )
             xClientSocket,
             0,
             FREERTOS_SO_RCVTIMEO,
-            &xReceieveTimeout,
-            sizeof( xReceieveTimeout ) );
+            &xRecvTimeout,
+            sizeof( xRecvTimeout ) );
 
         FreeRTOS_printf( ( "[ECHO SERVER] Client connected\r\n" ) );
 

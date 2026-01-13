@@ -66,6 +66,21 @@ static void someip_server_task(void *arg)
 
     FreeRTOS_printf(("SOMEIP: Client connected\r\n"));
 
+    /*-----------------------------------------------------------*/
+/* Make recv() blocking                                     */
+/*-----------------------------------------------------------*/
+{
+    TickType_t xRecvTimeout = portMAX_DELAY;
+
+    FreeRTOS_setsockopt(
+        xClientSocket,
+        0,
+        FREERTOS_SO_RCVTIMEO,
+        &xRecvTimeout,
+        sizeof(xRecvTimeout)
+    );
+}
+
     /*-------------------------------------------------------*/
     /* Request / Response loop                               */
     /*-------------------------------------------------------*/
