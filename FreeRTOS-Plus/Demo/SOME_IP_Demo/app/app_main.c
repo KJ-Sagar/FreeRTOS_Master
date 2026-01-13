@@ -4,7 +4,7 @@
 #include "app_main.h"
 #include "demo_echo.h"
 #include "tcp_heartbeat_demo.h"
-#include "demo_someip.h"
+#include "demo_someip/demo_someip.h"
 
 /*-----------------------------------------------------------*/     
 

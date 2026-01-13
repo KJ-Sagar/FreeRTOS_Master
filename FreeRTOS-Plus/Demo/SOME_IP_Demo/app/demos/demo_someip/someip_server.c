@@ -19,7 +19,7 @@ static void someip_server_task(void *arg)
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = FREERTOS_AF_INET;
-    addr.sin_port   = FreeRTOS_htons(SOMEIP_PORT);
+    addr.sin_port   = FreeRTOS_FreeRTOS_htons(SOMEIP_PORT);
     addr.sin_address.ulIP_IPv4 = FreeRTOS_GetIPAddress();
 
 
@@ -50,11 +50,11 @@ static void someip_server_task(void *arg)
     {
         someip_header_t req;
         FreeRTOS_recv(client, &req, sizeof(req), 0);
-        someip_ntoh(&req);
+        someip_FreeRTOS_ntohs(&req);
         FreeRTOS_printf(("SOMEIP: Request received\r\n"));
 
         int32_t temperature = 250; // 25.0 C
-        temperature = htonl(temperature);
+        temperature = FreeRTOS_htonl(temperature);
 
         someip_header_t resp = req;
         resp.message_type = SOMEIP_MSG_RESPONSE;

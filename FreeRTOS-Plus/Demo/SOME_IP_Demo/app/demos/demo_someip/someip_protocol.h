@@ -29,4 +29,4 @@ typedef struct __attribute__((packed))
 
 /* ---- FUNCTION DECLARATIONS AFTER ---- */
 void someip_hton(someip_header_t *h);
-void someip_ntoh(someip_header_t *h);
+void someip_FreeRTOS_ntohs(someip_header_t *h);

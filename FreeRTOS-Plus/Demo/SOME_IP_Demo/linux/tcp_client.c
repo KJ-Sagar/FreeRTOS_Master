@@ -26,7 +26,7 @@ int main(void)
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(SERVER_PORT);
+    addr.sin_port = FreeRTOS_htons(SERVER_PORT);
     inet_pton(AF_INET, SERVER_IP, &addr.sin_addr);
 
     printf("[LINUX] Connecting to FreeRTOS %s:%d...\n",

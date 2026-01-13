@@ -21,7 +21,7 @@ int main(void)
 
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(SERVER_PORT);
+    addr.sin_port = FreeRTOS_htons(SERVER_PORT);
     inet_pton(AF_INET, SERVER_IP, &addr.sin_addr);
 
     connect(sock, (struct sockaddr *)&addr, sizeof(addr));
@@ -41,11 +41,11 @@ int main(void)
 
     someip_header_t resp;
     recv(sock, &resp, sizeof(resp), MSG_WAITALL);
-    someip_ntoh(&resp);
+    someip_FreeRTOS_ntohs(&resp);
 
     int32_t temperature;
     recv(sock, &temperature, sizeof(temperature), MSG_WAITALL);
-    temperature = ntohl(temperature);
+    temperature = FreeRTOS_ntohsl(temperature);
 
     printf("Temperature: %.1f C\n", temperature / 10.0);
 

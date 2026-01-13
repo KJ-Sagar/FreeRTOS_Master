@@ -14,7 +14,7 @@ int main(void)
 
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
+    addr.sin_port = FreeRTOS_htons(PORT);
     addr.sin_addr.s_addr = INADDR_ANY;
 
     bind(s, (struct sockaddr *)&addr, sizeof(addr));
@@ -26,7 +26,7 @@ int main(void)
 
     someip_header_t req;
     recv(c, &req, sizeof(req), MSG_WAITALL);
-    someip_ntoh(&req);
+    someip_FreeRTOS_ntohs(&req);
 
     printf("Received SOME/IP request:\n");
     printf("  Service ID: 0x%04X\n", req.service_id);
