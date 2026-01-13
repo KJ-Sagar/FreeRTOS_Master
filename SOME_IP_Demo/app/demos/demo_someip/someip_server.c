@@ -1,6 +1,7 @@
 #include "someip_server.h"
 #include "someip_protocol.h"
 
+#include "FreeRTOS_IP.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
