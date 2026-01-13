@@ -88,6 +88,13 @@ for method_id, name in methods:
         msg_type,
         ret_code
     ) = struct.unpack("!HHIHHBBBB", resp_hdr)
+    print(
+        f"  Response Header:"
+        f" service=0x{svc_id:04X},"
+        f" method=0x{mtd_id:04X},"
+        f" length={length},"
+        f" msg_type=0x{msg_type:02X}"
+    )
 
     if ret_code != 0:
         print("  Error: unknown method")
@@ -97,16 +104,15 @@ for method_id, name in methods:
 
     if method_id == 0x0001:
         temp = struct.unpack("!i", payload)[0]
-        print(f"  Temperature: {temp / 10.0:.1f} °C")
+        print(f"  Payload: Temperature = {temp / 10.0:.1f} °C")
 
     elif method_id == 0x0002:
         rpm = struct.unpack("!H", payload)[0]
-        print(f"  RPM: {rpm}")
-
+        print(f"  Payload: RPM = {rpm}")
+   
     elif method_id == 0x0003:
         status = payload[0]
-        print(f"  Status: {status}")
-
+        print(f"  Payload: Status = {status}")
 
 # ------------------------------------
 # Close session

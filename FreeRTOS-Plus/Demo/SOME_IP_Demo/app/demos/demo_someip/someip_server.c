@@ -129,35 +129,57 @@ uint32_t payload_len = 0;
 
 switch (req.method_id)
 {
-    case SOMEIP_METHOD_GET_TEMPERATURE:
-    {
-        int32_t temp = FreeRTOS_htonl(250); /* 25.0 °C */
-        memcpy(payload, &temp, sizeof(temp));
-        payload_len = sizeof(temp);
-        break;
-    }
+   case SOMEIP_METHOD_GET_TEMPERATURE:
+{
+    int32_t temp = FreeRTOS_htonl(250); /* 25.0 °C */
+    memcpy(payload, &temp, sizeof(temp));
+    payload_len = sizeof(temp);
 
-    case SOMEIP_METHOD_GET_RPM:
-    {
-        uint16_t rpm = FreeRTOS_htons(3200);
-        memcpy(payload, &rpm, sizeof(rpm));
-        payload_len = sizeof(rpm);
-        break;
-    }
+    FreeRTOS_printf((
+        "SOMEIP: Resp svc=0x%04x method=0x%04x -> Temperature=25.0C\r\n",
+        req.service_id,
+        req.method_id));
+    break;
+}
 
-    case SOMEIP_METHOD_GET_STATUS:
-    {
-        payload[0] = 1; /* OK */
-        payload_len = 1;
-        break;
-    }
+case SOMEIP_METHOD_GET_RPM:
+{
+    uint16_t rpm = FreeRTOS_htons(3200);
+    memcpy(payload, &rpm, sizeof(rpm));
+    payload_len = sizeof(rpm);
 
-    default:
-    {
-        resp.return_code = SOMEIP_E_UNKNOWN_METHOD;
-        payload_len = 0;
-        break;
-    }
+    FreeRTOS_printf((
+        "SOMEIP: Resp svc=0x%04x method=0x%04x -> RPM=3200\r\n",
+        req.service_id,
+        req.method_id));
+    break;
+}
+
+
+case SOMEIP_METHOD_GET_STATUS:
+{
+    payload[0] = 1;
+    payload_len = 1;
+
+    FreeRTOS_printf((
+        "SOMEIP: Resp svc=0x%04x method=0x%04x -> Status=OK\r\n",
+        req.service_id,
+        req.method_id));
+    break;
+}
+
+default:
+{
+    resp.return_code = SOMEIP_E_UNKNOWN_METHOD;
+    payload_len = 0;
+
+    FreeRTOS_printf((
+        "SOMEIP: Resp svc=0x%04x method=0x%04x -> UNKNOWN METHOD\r\n",
+        req.service_id,
+        req.method_id));
+    break;
+}
+
 }
 
 resp.length = payload_len;
