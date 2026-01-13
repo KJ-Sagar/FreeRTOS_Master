@@ -109,20 +109,72 @@ static void someip_server_task(void *arg)
                 req.service_id,
                 req.method_id));
 
-            /* Prepare payload */
-            int32_t temperature = FreeRTOS_htonl(250); /* 25.0 °C */
+           /* /* Prepare payload */
+            // int32_t temperature = FreeRTOS_htonl(250); /* 25.0 °C */
 
-            /* Prepare response */
-            someip_header_t resp = req;
-            resp.message_type = SOMEIP_MSG_RESPONSE;
-            resp.length = sizeof(int32_t);
-            someip_hton(&resp);
+            // /* Prepare response */
+            // someip_header_t resp = req;
+            // resp.message_type = SOMEIP_MSG_RESPONSE;
+            // resp.length = sizeof(int32_t);
+            // someip_hton(&resp);
 
-            FreeRTOS_send(xClientSocket, &resp, sizeof(resp), 0);
-            FreeRTOS_send(xClientSocket, &temperature, sizeof(temperature), 0);
+            // FreeRTOS_send(xClientSocket, &resp, sizeof(resp), 0);
+            // FreeRTOS_send(xClientSocket, &temperature, sizeof(temperature), 0);
+someip_header_t resp = req;
+resp.message_type = SOMEIP_MSG_RESPONSE;
+resp.return_code  = SOMEIP_E_OK;
+
+uint8_t payload[8];
+uint32_t payload_len = 0;
+
+switch (req.method_id)
+{
+    case SOMEIP_METHOD_GET_TEMPERATURE:
+    {
+        int32_t temp = FreeRTOS_htonl(250); /* 25.0 °C */
+        memcpy(payload, &temp, sizeof(temp));
+        payload_len = sizeof(temp);
+        break;
+    }
+
+    case SOMEIP_METHOD_GET_RPM:
+    {
+        uint16_t rpm = FreeRTOS_htons(3200);
+        memcpy(payload, &rpm, sizeof(rpm));
+        payload_len = sizeof(rpm);
+        break;
+    }
+
+    case SOMEIP_METHOD_GET_STATUS:
+    {
+        payload[0] = 1; /* OK */
+        payload_len = 1;
+        break;
+    }
+
+    default:
+    {
+        resp.return_code = SOMEIP_E_UNKNOWN_METHOD;
+        payload_len = 0;
+        break;
+    }
+}
+
+resp.length = payload_len;
+someip_hton(&resp);
+
+/* Send response */
+FreeRTOS_send(xClientSocket, &resp, sizeof(resp), 0);
+
+if (payload_len > 0)
+{
+    FreeRTOS_send(xClientSocket, payload, payload_len, 0);
+}
 
             /* Optional: prevent tight loop if client spams */
             vTaskDelay(pdMS_TO_TICKS(100));
+
+
         }
 
         FreeRTOS_closesocket(xClientSocket);
