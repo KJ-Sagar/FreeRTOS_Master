@@ -73,7 +73,7 @@ static void prvTCPHeartbeatTask( void * pvParameters )
         memset( &xServerAddress, 0, sizeof( xServerAddress ) );
 
         xServerAddress.sin_family = FREERTOS_AF_INET;   
-        xServerAddress.sin_port   = FreeRTOS_FreeRTOS_htons( HEARTBEAT_SERVER_PORT );
+        xServerAddress.sin_port   = FreeRTOS_htons( HEARTBEAT_SERVER_PORT );
         xServerAddress.sin_address.ulIP_IPv4 =
     
         FreeRTOS_inet_addr( HEARTBEAT_SERVER_IP );

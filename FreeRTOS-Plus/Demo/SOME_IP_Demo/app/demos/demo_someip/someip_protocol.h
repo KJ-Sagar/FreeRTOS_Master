@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "FreeRTOS_IP.h"
 
 /* SOME/IP protocol constants */
 #define SOMEIP_PROTOCOL_VERSION   0x01

@@ -35,8 +35,18 @@ static void prvEchoServerTask( void * pvParameters )
     struct freertos_sockaddr xBindAddress;
     char rxBuffer[ 128 ];
     BaseType_t xRx;
+    
     //TickType_t xTimeout = pdMS_TO_TICKS( ECHO_RX_TIMEOUT_MS );
-    TickType_t xReceieveTimeout = portMAX_DELAY;
+    TickType_t xRecvTimeout = portMAX_DELAY;
+    
+    FreeRTOS_setsockopt(
+        xClientSocket,
+        0,
+        FREERTOS_SO_RCVTIMEO,
+        &xRecvTimeout,
+        sizeof(xRecvTimeout)
+    );
+    
     ( void ) pvParameters;
 
     FreeRTOS_printf( ( "\r\n[ECHO SERVER] Starting on port %d\r\n",

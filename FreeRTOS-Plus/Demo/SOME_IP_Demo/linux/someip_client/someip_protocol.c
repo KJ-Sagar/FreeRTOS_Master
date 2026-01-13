@@ -13,9 +13,9 @@ void someip_hton(someip_header_t *h)
 
 void someip_FreeRTOS_ntohs(someip_header_t *h)
 {
-    h->service_id = FreeRTOS_ntohss(h->service_id);
-    h->method_id  = FreeRTOS_ntohss(h->method_id);
-    h->length     = FreeRTOS_ntohsl(h->length);
-    h->client_id  = FreeRTOS_ntohss(h->client_id);
-    h->session_id = FreeRTOS_ntohss(h->session_id);
+    h->service_id = FreeRTOS_ntohs(h->service_id);
+    h->method_id  = FreeRTOS_ntohs(h->method_id);
+    h->length     = FreeRTOS_ntohl(h->length);
+    h->client_id  = FreeRTOS_ntohs(h->client_id);
+    h->session_id = FreeRTOS_ntohs(h->session_id);
 }
