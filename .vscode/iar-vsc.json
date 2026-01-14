@@ -1,0 +1,23 @@
+{
+  "workspace": {
+    "path": "${workspaceFolder}/SOURCE Files/FreeRTOS/Test/CMock/CMock/test/iar/iar_v4/cmock_demo.eww"
+  },
+  "workspaces": {
+    "${workspaceFolder}/Test/CMock/test/iar/iar_v5/cmock_demo.eww": {
+      "configs": {
+        "${workspaceFolder}/Test/CMock/test/iar/iar_v5/cmock_demo.ewp": "RAM_Debug"
+      },
+      "selected": {
+        "path": "${workspaceFolder}/Test/CMock/test/iar/iar_v5/cmock_demo.ewp"
+      }
+    },
+    "${workspaceFolder}/SOURCE Files/FreeRTOS/Test/CMock/CMock/test/iar/iar_v4/cmock_demo.eww": {
+      "configs": {
+        "${workspaceFolder}/SOURCE Files/FreeRTOS/Test/CMock/CMock/test/iar/iar_v4/cmock_demo.ewp": "Debug"
+      },
+      "selected": {
+        "path": "${workspaceFolder}/SOURCE Files/FreeRTOS/Test/CMock/CMock/test/iar/iar_v4/cmock_demo.ewp"
+      }
+    }
+  }
+}
