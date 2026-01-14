@@ -1,0 +1,126 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="SOME-IP E2E Flow (Maximal, Phase-Based)">
+    <mxGraphModel dx="2200" dy="1400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- ================= SWIM LANES ================= -->
+
+        <mxCell id="lane_client" value="Linux SOME/IP Client (User Space)" style="swimlane;horizontal=0;startSize=28;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="4200" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane_tcp_linux" value="Linux TCP/IP Stack (Kernel Space)" style="swimlane;horizontal=0;startSize=28;" vertex="1" parent="1">
+          <mxGeometry x="0" y="130" width="4200" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane_tap" value="TAP / QEMU Virtual Ethernet" style="swimlane;horizontal=0;startSize=28;" vertex="1" parent="1">
+          <mxGeometry x="0" y="250" width="4200" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane_freertos_tcp" value="FreeRTOS+TCP Stack" style="swimlane;horizontal=0;startSize=28;" vertex="1" parent="1">
+          <mxGeometry x="0" y="360" width="4200" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane_server_task" value="FreeRTOS Task: someip_server_task()" style="swimlane;horizontal=0;startSize=28;" vertex="1" parent="1">
+          <mxGeometry x="0" y="520" width="4200" height="160" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane_protocol" value="SOME/IP Protocol Layer (Pure Logic)" style="swimlane;horizontal=0;startSize=28;" vertex="1" parent="1">
+          <mxGeometry x="0" y="680" width="4200" height="170" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane_app" value="Application / Service Logic" style="swimlane;horizontal=0;startSize=28;" vertex="1" parent="1">
+          <mxGeometry x="0" y="850" width="4200" height="170" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 1: CLIENT ================= -->
+
+        <mxCell id="c_socket" value="socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)" style="rounded=1;fillColor=#dae8fc;" vertex="1" parent="lane_client">
+          <mxGeometry x="40" y="50" width="420" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="c_connect" value="connect()\nDst IP: 10.0.0.2\nDst Port: 30490 (SOME/IP)" style="rounded=1;fillColor=#dae8fc;" vertex="1" parent="lane_client">
+          <mxGeometry x="500" y="50" width="420" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="c_serialize" value="Serialize SOME/IP Request\nHeader:\n- Service ID = 0x1234\n- Method ID  = 0x0001 (PING)\n- Length     = 4\nPayload:\nDE AD BE EF" style="rounded=1;fillColor=#d5e8d4;" vertex="1" parent="lane_client">
+          <mxGeometry x="960" y="30" width="520" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="c_send" value="send()\nBytes = sizeof(header)+payload\nNOTE: TCP stream, not message" style="rounded=1;fillColor=#dae8fc;" vertex="1" parent="lane_client">
+          <mxGeometry x="1520" y="50" width="420" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 2: LINUX TCP ================= -->
+
+        <mxCell id="tcp_seg" value="TCP Segmentation\n- Stream-based\n- No message boundaries\n- Possible fragmentation" style="rounded=1;fillColor=#fff2cc;" vertex="1" parent="lane_tcp_linux">
+          <mxGeometry x="1520" y="40" width="480" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 3: TAP ================= -->
+
+        <mxCell id="tap_flow" value="tap0 → QEMU NIC\nEthernet Frames\n(IP=10.0.0.1 → 10.0.0.2)" style="rounded=1;fillColor=#f8cecc;" vertex="1" parent="lane_tap">
+          <mxGeometry x="2050" y="40" width="520" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 4: FREERTOS TCP ================= -->
+
+        <mxCell id="f_listen" value="Listening Socket\nFreeRTOS_socket()\nFreeRTOS_bind()\nPort = 30490\nState = LISTEN" style="rounded=1;fillColor=#fff2cc;" vertex="1" parent="lane_freertos_tcp">
+          <mxGeometry x="2620" y="30" width="520" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="f_accept" value="FreeRTOS_accept()\n- Blocks TASK\n- Scheduler continues" style="rounded=1;fillColor=#fff2cc;" vertex="1" parent="lane_freertos_tcp">
+          <mxGeometry x="3180" y="40" width="420" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="f_recv" value="FreeRTOS_recv()\nRX raw TCP bytes\nPossible partial read" style="rounded=1;fillColor=#fff2cc;" vertex="1" parent="lane_freertos_tcp">
+          <mxGeometry x="3640" y="40" width="420" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 5: SERVER TASK ================= -->
+
+        <mxCell id="s_rx" value="someip_server_task()\nReceives RX buffer\nbytes_received = N" style="rounded=1;fillColor=#dae8fc;" vertex="1" parent="lane_server_task">
+          <mxGeometry x="3640" y="40" width="420" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 6: PROTOCOL ================= -->
+
+        <mxCell id="p_parse" value="someip_parse_header()\nChecks:\n- bytes >= header size\n- service_id valid\n- method_id valid\n- length sane" style="rounded=1;fillColor=#d5e8d4;" vertex="1" parent="lane_protocol">
+          <mxGeometry x="3640" y="30" width="520" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p_extract" value="Payload Extraction\npayload_ptr = buf + sizeof(header)\npayload_len = header.length" style="rounded=1;fillColor=#d5e8d4;" vertex="1" parent="lane_protocol">
+          <mxGeometry x="4200" y="30" width="520" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 7: APPLICATION ================= -->
+
+        <mxCell id="a_service" value="Service Dispatch\nswitch(service_id)\n0x1234 → HEARTBEAT" style="rounded=1;fillColor=#e1d5e7;" vertex="1" parent="lane_app">
+          <mxGeometry x="4200" y="30" width="520" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="a_method" value="Method Dispatch\nPING (0x0001)\nExecute logic:\nresponse = \"ALIVE\"" style="rounded=1;fillColor=#e1d5e7;" vertex="1" parent="lane_app">
+          <mxGeometry x="4760" y="30" width="520" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- ================= PHASE 8: RESPONSE ================= -->
+
+        <mxCell id="p_build" value="someip_build_response()\nService ID = request\nMethod ID  = request\nLength = response payload" style="rounded=1;fillColor=#d5e8d4;" vertex="1" parent="lane_protocol">
+          <mxGeometry x="5320" y="30" width="520" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="f_send" value="FreeRTOS_send()\nTX response bytes\nReliable, ordered TCP" style="rounded=1;fillColor=#fff2cc;" vertex="1" parent="lane_freertos_tcp">
+          <mxGeometry x="5320" y="40" width="520" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="c_recv" value="recv()\nParse SOME/IP Response\nMatch Service + Method" style="rounded=1;fillColor=#dae8fc;" vertex="1" parent="lane_client">
+          <mxGeometry x="5880" y="50" width="520" height="80" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+
