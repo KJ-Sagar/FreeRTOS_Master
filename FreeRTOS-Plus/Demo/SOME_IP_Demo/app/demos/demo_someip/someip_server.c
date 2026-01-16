@@ -12,6 +12,15 @@
 #define SOMEIP_BACKLOG  1
 
 /*-----------------------------------------------------------*/
+//PRNG state
+static uint32_t someip_rng_state = 0x12345678;
+
+static uint32_t someip_rand(void)
+{
+    /* Linear Congruential Generator (LCG) */
+    someip_rng_state = (1103515245 * someip_rng_state + 12345);
+    return someip_rng_state;
+}
 
 static void someip_server_task(void *arg)
 {
@@ -131,42 +140,51 @@ switch (req.method_id)
 {
    case SOMEIP_METHOD_GET_TEMPERATURE:
 {
-    int32_t temp = FreeRTOS_htonl(250); /* 25.0 °C */
-    memcpy(payload, &temp, sizeof(temp));
-    payload_len = sizeof(temp);
+    /* Generate temperature: 15.0°C – 40.0°C (scaled ×10) */
+    int32_t temp_x10 = 150 + (someip_rand() % 250); // 150 → 400
+    int32_t temp_net = FreeRTOS_htonl(temp_x10);
+
+    memcpy(payload, &temp_net, sizeof(temp_net));
+    payload_len = sizeof(temp_net);
 
     FreeRTOS_printf((
-        "SOMEIP: Resp svc=0x%04x method=0x%04x -> Temperature=25.0C\r\n",
-        req.service_id,
-        req.method_id));
+        "SOMEIP: Temperature = %ld.%ld C\r\n",
+        temp_x10 / 10,
+        temp_x10 % 10));
+
     break;
 }
+
 
 case SOMEIP_METHOD_GET_RPM:
 {
-    uint16_t rpm = FreeRTOS_htons(3200);
-    memcpy(payload, &rpm, sizeof(rpm));
-    payload_len = sizeof(rpm);
+    /* Generate RPM: 800 – 7000 */
+    uint16_t rpm = 800 + (someip_rand() % 6200);
+    uint16_t rpm_net = FreeRTOS_htons(rpm);
+
+    memcpy(payload, &rpm_net, sizeof(rpm_net));
+    payload_len = sizeof(rpm_net);
 
     FreeRTOS_printf((
-        "SOMEIP: Resp svc=0x%04x method=0x%04x -> RPM=3200\r\n",
-        req.service_id,
-        req.method_id));
+        "SOMEIP: RPM = %u\r\n", rpm));
+
     break;
 }
+
 
 
 case SOMEIP_METHOD_GET_STATUS:
 {
-    payload[0] = 1;
+    payload[0] = (someip_rand() & 0x1); // 0 or 1
     payload_len = 1;
 
     FreeRTOS_printf((
-        "SOMEIP: Resp svc=0x%04x method=0x%04x -> Status=OK\r\n",
-        req.service_id,
-        req.method_id));
+        "SOMEIP: Status = %s\r\n",
+        payload[0] ? "OK" : "FAULT"));
+
     break;
 }
+
 
 default:
 {
