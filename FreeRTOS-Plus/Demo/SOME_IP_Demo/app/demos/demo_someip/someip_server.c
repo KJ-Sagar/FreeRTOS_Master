@@ -1,241 +1,213 @@
-#include <string.h>
-
-#include "FreeRTOS.h"
-#include "task.h"
-#include "FreeRTOS_Sockets.h"
-#include "FreeRTOS_IP.h"
-
 #include "someip_server.h"
 #include "someip_protocol.h"
 
-#define SOMEIP_PORT     30509
-#define SOMEIP_BACKLOG  1
+#include "FreeRTOS.h"
+#include "task.h"
+#include "string.h"
+#include "stdio.h"
 
-/*-----------------------------------------------------------*/
-//PRNG state
-static uint32_t someip_rng_state = 0x12345678;
+/* -------------------------------------------------
+ * Simple PRNG (deterministic, no libc rand)
+ * ------------------------------------------------- */
+static uint32_t rng_state = 0xA5A5A5A5;
 
-static uint32_t someip_rand(void)
+static uint32_t rand32(void)
 {
-    /* Linear Congruential Generator (LCG) */
-    someip_rng_state = (1103515245 * someip_rng_state + 12345);
-    return someip_rng_state;
+    rng_state = (1103515245UL * rng_state + 12345UL);
+    return rng_state;
 }
 
-static void someip_server_task(void *arg)
+/* -------------------------------------------------
+ * Forward declaration
+ * ------------------------------------------------- */
+static void someip_server_task(void *arg);
+
+/* -------------------------------------------------
+ * Public entry point
+ * ------------------------------------------------- */
+void someip_server_start(void)
 {
-    (void)arg;
-
-    Socket_t xListenSocket = FREERTOS_INVALID_SOCKET;
-    Socket_t xClientSocket = FREERTOS_INVALID_SOCKET;
-
-    struct freertos_sockaddr xBindAddress;
-    struct freertos_sockaddr xClientAddress;
-    socklen_t xClientAddressLength = sizeof(xClientAddress);
-
-    /* Bind to ANY address on SOME/IP port */
-    memset(&xBindAddress, 0, sizeof(xBindAddress));
-    xBindAddress.sin_family = FREERTOS_AF_INET;
-    xBindAddress.sin_port   = FreeRTOS_htons(SOMEIP_PORT);
-    xBindAddress.sin_address.ulIP_IPv4 = FREERTOS_INADDR_ANY;
-
-    /* Create listening socket */
-    xListenSocket = FreeRTOS_socket(
-        FREERTOS_AF_INET,
-        FREERTOS_SOCK_STREAM,
-        FREERTOS_IPPROTO_TCP
-    );
-
-    configASSERT(xListenSocket != FREERTOS_INVALID_SOCKET);
-    FreeRTOS_printf(("SOMEIP: Socket created\r\n"));
-
-    /* Bind */
-    configASSERT(
-        FreeRTOS_bind(
-            xListenSocket,
-            &xBindAddress,
-            sizeof(xBindAddress)) == 0 );
-
-    FreeRTOS_printf(("SOMEIP: Bound to port %d\r\n", SOMEIP_PORT));
-
-    /* Listen */
-    configASSERT(
-        FreeRTOS_listen(xListenSocket, SOMEIP_BACKLOG) == 0 );
-
-    FreeRTOS_printf(("SOMEIP: Listening...\r\n"));
-
-    /* ================= LOOP-BACK ACCEPT ================= */
-    for (;;)
-    {
-        xClientSocket = FreeRTOS_accept(
-            xListenSocket,
-            &xClientAddress,
-            &xClientAddressLength );
-
-        if (xClientSocket == FREERTOS_INVALID_SOCKET)
-        {
-            FreeRTOS_printf(("SOMEIP: Accept failed\r\n"));
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
-
-        FreeRTOS_printf(("SOMEIP: Client connected\r\n"));
-
-        /* Make recv() blocking */
-        {
-            TickType_t xRecvTimeout = portMAX_DELAY;
-            FreeRTOS_setsockopt(
-                xClientSocket,
-                0,
-                FREERTOS_SO_RCVTIMEO,
-                &xRecvTimeout,
-                sizeof(xRecvTimeout)
-            );
-        }
-
-        /* -------- Handle client -------- */
-        for (;;)
-        {
-            someip_header_t req;
-            BaseType_t xRecv;
-
-            xRecv = FreeRTOS_recv(
-                xClientSocket,
-                &req,
-                sizeof(req),
-                0 );
-
-            if (xRecv <= 0)
-            {
-                FreeRTOS_printf(("SOMEIP: Client disconnected\r\n"));
-                break;
-            }
-
-            someip_ntoh(&req);
-
-            FreeRTOS_printf((
-                "SOMEIP: Req svc=0x%04x method=0x%04x\r\n",
-                req.service_id,
-                req.method_id));
-
-           /* /* Prepare payload */
-            // int32_t temperature = FreeRTOS_htonl(250); /* 25.0 °C */
-
-            // /* Prepare response */
-            // someip_header_t resp = req;
-            // resp.message_type = SOMEIP_MSG_RESPONSE;
-            // resp.length = sizeof(int32_t);
-            // someip_hton(&resp);
-
-            // FreeRTOS_send(xClientSocket, &resp, sizeof(resp), 0);
-            // FreeRTOS_send(xClientSocket, &temperature, sizeof(temperature), 0);
-someip_header_t resp = req;
-resp.message_type = SOMEIP_MSG_RESPONSE;
-resp.return_code  = SOMEIP_E_OK;
-
-uint8_t payload[8];
-uint32_t payload_len = 0;
-
-switch (req.method_id)
-{
-   case SOMEIP_METHOD_GET_TEMPERATURE:
-{
-    /* Generate temperature: 15.0°C – 40.0°C (scaled ×10) */
-    int32_t temp_x10 = 150 + (someip_rand() % 250); // 150 → 400
-    int32_t temp_net = FreeRTOS_htonl(temp_x10);
-
-    memcpy(payload, &temp_net, sizeof(temp_net));
-    payload_len = sizeof(temp_net);
-
-    FreeRTOS_printf((
-        "SOMEIP: Temperature = %ld.%ld C\r\n",
-        temp_x10 / 10,
-        temp_x10 % 10));
-
-    break;
-}
-
-
-case SOMEIP_METHOD_GET_RPM:
-{
-    /* Generate RPM: 800 – 7000 */
-    uint16_t rpm = 800 + (someip_rand() % 6200);
-    uint16_t rpm_net = FreeRTOS_htons(rpm);
-
-    memcpy(payload, &rpm_net, sizeof(rpm_net));
-    payload_len = sizeof(rpm_net);
-
-    FreeRTOS_printf((
-        "SOMEIP: RPM = %u\r\n", rpm));
-
-    break;
-}
-
-
-
-case SOMEIP_METHOD_GET_STATUS:
-{
-    payload[0] = (someip_rand() & 0x1); // 0 or 1
-    payload_len = 1;
-
-    FreeRTOS_printf((
-        "SOMEIP: Status = %s\r\n",
-        payload[0] ? "OK" : "FAULT"));
-
-    break;
-}
-
-
-default:
-{
-    resp.return_code = SOMEIP_E_UNKNOWN_METHOD;
-    payload_len = 0;
-
-    FreeRTOS_printf((
-        "SOMEIP: Resp svc=0x%04x method=0x%04x -> UNKNOWN METHOD\r\n",
-        req.service_id,
-        req.method_id));
-    break;
-}
-
-}
-
-resp.length = payload_len;
-someip_hton(&resp);
-
-/* Send response */
-FreeRTOS_send(xClientSocket, &resp, sizeof(resp), 0);
-
-if (payload_len > 0)
-{
-    FreeRTOS_send(xClientSocket, payload, payload_len, 0);
-}
-
-            /* Optional: prevent tight loop if client spams */
-            vTaskDelay(pdMS_TO_TICKS(100));
-
-
-        }
-
-        FreeRTOS_closesocket(xClientSocket);
-        xClientSocket = FREERTOS_INVALID_SOCKET;
-    }
-}
-
-/*-----------------------------------------------------------*/
-
-void someip_server_start( void )
-{
-    FreeRTOS_printf( ( "SOMEIP: Server start requested\r\n" ) );
-
     xTaskCreate(
         someip_server_task,
         "SOMEIP_SERVER",
         configMINIMAL_STACK_SIZE * 4,
         NULL,
-        tskIDLE_PRIORITY + 1,
-        NULL );
+        tskIDLE_PRIORITY + 2,
+        NULL
+    );
 }
 
-/*-----------------------------------------------------------*/
-/* EOF */
+/* -------------------------------------------------
+ * SOME/IP Server Task
+ * ------------------------------------------------- */
+static void someip_server_task(void *arg)
+{
+    (void)arg;
+
+    Socket_t server_socket, client_socket;
+    struct freertos_sockaddr addr;
+    socklen_t addrlen = sizeof(addr);
+
+    uint8_t rx_buf[SOMEIP_RX_BUFFER_SIZE];
+    uint8_t tx_buf[SOMEIP_TX_BUFFER_SIZE];
+
+    /* ---- Create listening socket ---- */
+    server_socket = FreeRTOS_socket(
+        FREERTOS_AF_INET,
+        FREERTOS_SOCK_STREAM,
+        FREERTOS_IPPROTO_TCP
+    );
+
+    configASSERT(server_socket != FREERTOS_INVALID_SOCKET);
+
+    addr.sin_port = FreeRTOS_htons(SOMEIP_SERVER_PORT);
+
+    FreeRTOS_bind(server_socket, &addr, sizeof(addr));
+    FreeRTOS_listen(server_socket, 1);
+
+    FreeRTOS_printf(("SOMEIP: Server listening on port %d\r\n",
+                      SOMEIP_SERVER_PORT));
+
+    /* ---- Accept loop ---- */
+    for (;;)
+    {
+        client_socket = FreeRTOS_accept(server_socket, &addr, &addrlen);
+
+        if (client_socket == FREERTOS_INVALID_SOCKET)
+        {
+            continue;
+        }
+
+        FreeRTOS_printf(("SOMEIP: Client connected\r\n"));
+
+        /* -------------------------------------------------
+         * Persistent session: serve requests until client
+         * disconnects
+         * ------------------------------------------------- */
+        for (;;)
+        {
+            int rx_len = FreeRTOS_recv(
+                client_socket,
+                rx_buf,
+                sizeof(rx_buf),
+                0
+            );
+
+            /* Client closed connection or error */
+            if (rx_len <= 0)
+            {
+                FreeRTOS_printf(("SOMEIP: Client disconnected\r\n"));
+                break;
+            }
+
+            /* ---- Basic sanity check ---- */
+            if (rx_len < (int)sizeof(someip_header_t))
+            {
+                FreeRTOS_printf(("SOMEIP: Short packet ignored\r\n"));
+                continue;
+            }
+
+            someip_header_t *hdr = (someip_header_t *)rx_buf;
+            someip_ntoh_header(hdr);
+
+            uint8_t *payload = tx_buf + sizeof(someip_header_t);
+            uint32_t payload_len = 0;
+
+            /* ---- Default response ---- */
+            hdr->message_type = SOMEIP_MSG_RESPONSE;
+            hdr->return_code  = SOMEIP_RET_OK;
+
+            /* ---- Validate message type ---- */
+            if (hdr->message_type != SOMEIP_MSG_REQUEST)
+            {
+                hdr->message_type = SOMEIP_MSG_ERROR;
+                hdr->return_code  = SOMEIP_RET_E_MALFORMED_MESSAGE;
+            }
+            else
+            {
+                /* ---- Service dispatch ---- */
+                switch (hdr->service_id)
+                {
+                    case SOMEIP_SERVICE_SENSOR:
+                        if (hdr->method_id == SOMEIP_METHOD_GET_TEMPERATURE)
+                        {
+                            int32_t temp = 150 + (rand32() % 250);
+                            temp = FreeRTOS_htonl(temp);
+                            memcpy(payload, &temp, sizeof(temp));
+                            payload_len = sizeof(temp);
+                        }
+                        else if (hdr->method_id == SOMEIP_METHOD_GET_HUMIDITY)
+                        {
+                            payload[0] = 30 + (rand32() % 50);
+                            payload_len = 1;
+                        }
+                        else
+                        {
+                            hdr->return_code = SOMEIP_RET_E_UNKNOWN_METHOD;
+                        }
+                        break;
+
+                    case SOMEIP_SERVICE_ENGINE:
+                        if (hdr->method_id == SOMEIP_METHOD_GET_RPM)
+                        {
+                            uint16_t rpm =
+                                FreeRTOS_htons(800 + (rand32() % 6200));
+                            memcpy(payload, &rpm, sizeof(rpm));
+                            payload_len = sizeof(rpm);
+                        }
+                        else if (hdr->method_id == SOMEIP_METHOD_GET_TORQUE)
+                        {
+                            uint16_t tq =
+                                FreeRTOS_htons(100 + (rand32() % 400));
+                            memcpy(payload, &tq, sizeof(tq));
+                            payload_len = sizeof(tq);
+                        }
+                        else
+                        {
+                            hdr->return_code = SOMEIP_RET_E_UNKNOWN_METHOD;
+                        }
+                        break;
+
+                    case SOMEIP_SERVICE_SYSTEM:
+                        if (hdr->method_id == SOMEIP_METHOD_GET_STATUS)
+                        {
+                            payload[0] = 1;
+                            payload_len = 1;
+                        }
+                        else if (hdr->method_id == SOMEIP_METHOD_GET_UPTIME)
+                        {
+                            uint32_t up =
+                                FreeRTOS_htonl(xTaskGetTickCount());
+                            memcpy(payload, &up, sizeof(up));
+                            payload_len = sizeof(up);
+                        }
+                        else
+                        {
+                            hdr->return_code = SOMEIP_RET_E_UNKNOWN_METHOD;
+                        }
+                        break;
+
+                    default:
+                        hdr->return_code = SOMEIP_RET_E_UNKNOWN_SERVICE;
+                        break;
+                }
+            }
+
+            /* ---- Finalize header ---- */
+            hdr->length = payload_len;
+            someip_hton_header(hdr);
+
+            memcpy(tx_buf, hdr, sizeof(someip_header_t));
+
+            /* ---- Send response ---- */
+            FreeRTOS_send(
+                client_socket,
+                tx_buf,
+                sizeof(someip_header_t) + payload_len,
+                0
+            );
+        }
+
+        FreeRTOS_closesocket(client_socket);
+    }
+}
