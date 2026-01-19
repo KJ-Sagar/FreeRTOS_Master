@@ -49,6 +49,14 @@
 #define SOMEIP_METHOD_GET_UPTIME       0x0021
 
 /* =========================
+ * SERVICE DISCOVERY METHODS
+ * ========================= */
+#define SOMEIP_SERVICE_SD      0xFFFF
+#define SOMEIP_METHOD_SD_OFFER 0x0001
+
+
+
+/* =========================
  * SOME/IP HEADER
  * ========================= */
 typedef struct
@@ -67,5 +75,13 @@ typedef struct
  * ========================= */
 void someip_hton_header(someip_header_t *hdr);
 void someip_ntoh_header(someip_header_t *hdr);
+
+/* =========================
+ * SUBSCRIPTION METHODS
+ * ========================= */
+#define SOMEIP_METHOD_SUBSCRIBE   0x0100
+#define SOMEIP_METHOD_UNSUBSCRIBE 0x0101
+
+
 
 #endif /* SOMEIP_PROTOCOL_H */
