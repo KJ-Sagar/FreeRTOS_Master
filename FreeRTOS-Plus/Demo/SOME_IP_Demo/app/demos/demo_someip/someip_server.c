@@ -73,7 +73,7 @@ static uint32_t rand32(void)
 }
 
 /* =================================================
- * TCP reassembly helper
+ * TCP reassembly helper (blocking)
  * ================================================= */
 static int recv_exact(Socket_t sock, uint8_t *buf, size_t len)
 {
@@ -164,6 +164,16 @@ static void someip_server_task(void *arg)
             continue;
         }
 
+        /* ---- IMPORTANT: make recv() blocking ---- */
+        TickType_t recv_timeout = portMAX_DELAY;
+        FreeRTOS_setsockopt(
+            client_socket,
+            0,
+            FREERTOS_SO_RCVTIMEO,
+            &recv_timeout,
+            sizeof(recv_timeout)
+        );
+
         for (;;)
         {
             /* ---- Receive header ---- */
@@ -194,7 +204,6 @@ static void someip_server_task(void *arg)
             uint8_t *payload = tx_buf + sizeof(someip_header_t);
             uint32_t payload_len = 0;
 
-            /* ---- Preserve request type ---- */
             uint8_t req_type = hdr->message_type;
 
             hdr->message_type = SOMEIP_MSG_RESPONSE;
@@ -207,7 +216,6 @@ static void someip_server_task(void *arg)
                 goto send_response;
             }
 
-            /* ---- Service dispatch ---- */
             switch (hdr->service_id)
             {
                 case SOMEIP_SERVICE_SD:
@@ -331,7 +339,9 @@ static void someip_notification_task(void *arg)
 
         for (int i = 0; i < SOMEIP_MAX_CLIENTS; i++)
         {
-            if (!clients[i].active || !clients[i].temp_subscribed)
+            if (!clients[i].active ||
+                !clients[i].temp_subscribed ||
+                clients[i].socket == FREERTOS_INVALID_SOCKET)
                 continue;
 
             hdr->service_id   = SOMEIP_SERVICE_SENSOR;
