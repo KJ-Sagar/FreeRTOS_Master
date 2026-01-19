@@ -1,20 +1,26 @@
-#include "someip_protocol.h"
-#include "FreeRTOS_IP.h"
+/*
+ * FreeRTOS SomeIP Protocol Demo
+ *
+ * SPDX-License-Identifier: MIT
+ *#include "someip_protocol.h"
+*/
+#include "someip_protocol.h"   // MUST come first
+#include "FreeRTOS.h"
 
-void someip_hton(someip_header_t *h)
+void someip_hton_header(someip_header_t *hdr)
 {
-    h->service_id = FreeRTOS_htons(h->service_id);
-    h->method_id  = FreeRTOS_htons(h->method_id);
-    h->length     = FreeRTOS_htonl(h->length);
-    h->client_id  = FreeRTOS_htons(h->client_id);
-    h->session_id = FreeRTOS_htons(h->session_id);
+    hdr->service_id  = FreeRTOS_htons(hdr->service_id);
+    hdr->method_id   = FreeRTOS_htons(hdr->method_id);
+    hdr->length      = FreeRTOS_htonl(hdr->length);
+    hdr->client_id   = FreeRTOS_htons(hdr->client_id);
+    hdr->session_id  = FreeRTOS_htons(hdr->session_id);
 }
 
-void someip_ntoh(someip_header_t *h)
+void someip_ntoh_header(someip_header_t *hdr)
 {
-    h->service_id = FreeRTOS_ntohs(h->service_id);
-    h->method_id  = FreeRTOS_ntohs(h->method_id);
-    h->length     = FreeRTOS_ntohl(h->length);
-    h->client_id  = FreeRTOS_ntohs(h->client_id);
-    h->session_id = FreeRTOS_ntohs(h->session_id);
+    hdr->service_id  = FreeRTOS_ntohs(hdr->service_id);
+    hdr->method_id   = FreeRTOS_ntohs(hdr->method_id);
+    hdr->length      = FreeRTOS_ntohl(hdr->length);
+    hdr->client_id   = FreeRTOS_ntohs(hdr->client_id);
+    hdr->session_id  = FreeRTOS_ntohs(hdr->session_id);
 }
