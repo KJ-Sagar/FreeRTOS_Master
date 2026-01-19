@@ -39,21 +39,21 @@
 /* ===================== */
 
 #define SOMEIP_METHOD_GET_TEMPERATURE  0x0001
-#define SOMEIP_METHOD_GET_HUMIDITY     0x0002
+#define SOMEIP_METHOD_GET_HUMIDITY     0x0011
 
 /* ===================== */
 /* ENGINE SERVICE METHODS */
 /* ===================== */
 
-#define SOMEIP_METHOD_GET_RPM          0x0010
-#define SOMEIP_METHOD_GET_TORQUE       0x0011
+#define SOMEIP_METHOD_GET_RPM          0x0002
+#define SOMEIP_METHOD_GET_TORQUE       0x0012
 
 /* ===================== */
 /* SYSTEM SERVICE METHODS */
 /* ===================== */
 
-#define SOMEIP_METHOD_GET_STATUS       0x0020
-#define SOMEIP_METHOD_GET_UPTIME       0x0021
+#define SOMEIP_METHOD_GET_STATUS       0x0003
+#define SOMEIP_METHOD_GET_UPTIME       0x0023
 
 /* ---- TYPE DEFINITIONS FIRST ---- */
 typedef struct __attribute__((packed))
