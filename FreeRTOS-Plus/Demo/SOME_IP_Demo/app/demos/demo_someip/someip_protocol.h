@@ -25,6 +25,36 @@
 #define SOMEIP_E_OK                     0x00
 #define SOMEIP_E_UNKNOWN_METHOD         0x01
 #define SOMEIP_E_NOT_AVAILABLE          0x02
+
+/* ===================== */
+/* SOME/IP SERVICE IDs   */
+/* ===================== */
+
+#define SOMEIP_SERVICE_SENSOR   0x1001
+#define SOMEIP_SERVICE_ENGINE   0x1002
+#define SOMEIP_SERVICE_SYSTEM   0x1003
+
+/* ===================== */
+/* SENSOR SERVICE METHODS */
+/* ===================== */
+
+#define SOMEIP_METHOD_GET_TEMPERATURE  0x0001
+#define SOMEIP_METHOD_GET_HUMIDITY     0x0002
+
+/* ===================== */
+/* ENGINE SERVICE METHODS */
+/* ===================== */
+
+#define SOMEIP_METHOD_GET_RPM          0x0010
+#define SOMEIP_METHOD_GET_TORQUE       0x0011
+
+/* ===================== */
+/* SYSTEM SERVICE METHODS */
+/* ===================== */
+
+#define SOMEIP_METHOD_GET_STATUS       0x0020
+#define SOMEIP_METHOD_GET_UPTIME       0x0021
+
 /* ---- TYPE DEFINITIONS FIRST ---- */
 typedef struct __attribute__((packed))
 {
