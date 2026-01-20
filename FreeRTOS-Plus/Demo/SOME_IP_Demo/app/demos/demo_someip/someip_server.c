@@ -169,7 +169,12 @@ static void someip_server_task(void *arg)
             someip_ntoh_header(&hdr);
 
             if (someip_validate_header(&hdr) != pdPASS)
-                break;
+{
+    hdr.message_type = SOMEIP_MSG_ERROR;
+    hdr.return_code  = SOMEIP_RET_E_MALFORMED_MESSAGE;
+    hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
+    goto send;
+}
 
             uint32_t payload_len =
                 hdr.length - SOMEIP_HEADER_PAYLOAD_OFFSET;
@@ -185,22 +190,23 @@ static void someip_server_task(void *arg)
                 break;
 
             /* ---- Subscription handling ---- */
-            if (hdr.method_id == 0x0100) /* SUBSCRIBE */
-            {
-                client->heartbeat_subscribed = pdTRUE;
-                hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
-                hdr.message_type = SOMEIP_MSG_RESPONSE;
-                hdr.return_code = SOMEIP_RET_OK;
-                goto send;
-            }
-            else if (hdr.method_id == 0x0101) /* UNSUBSCRIBE */
-            {
-                client->heartbeat_subscribed = pdFALSE;
-                hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
-                hdr.message_type = SOMEIP_MSG_RESPONSE;
-                hdr.return_code = SOMEIP_RET_OK;
-                goto send;
-            }
+            if (hdr.service_id == 0x1234 && hdr.method_id == 0x0100)
+{
+    client->heartbeat_subscribed = pdTRUE;
+    hdr.message_type = SOMEIP_MSG_RESPONSE;
+    hdr.return_code  = SOMEIP_RET_OK;
+    hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
+    goto send;
+}
+else if (hdr.service_id == 0x1234 && hdr.method_id == 0x0101)
+{
+    client->heartbeat_subscribed = pdFALSE;
+    hdr.message_type = SOMEIP_MSG_RESPONSE;
+    hdr.return_code  = SOMEIP_RET_OK;
+    hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
+    goto send;
+}
+
 
             /* ---- Normal dispatch ---- */
             someip_service_handler_t handler =
