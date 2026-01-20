@@ -25,7 +25,9 @@ typedef struct
     Socket_t socket;
     BaseType_t active;
     BaseType_t heartbeat_subscribed;
+    SemaphoreHandle_t tx_mutex;
 } someip_client_ctx_t;
+
 
 static someip_client_ctx_t clients[SOMEIP_MAX_CLIENTS];
 
@@ -47,11 +49,13 @@ static someip_client_ctx_t *alloc_client(Socket_t sock)
             clients[i].active = pdTRUE;
             clients[i].socket = sock;
             clients[i].heartbeat_subscribed = pdFALSE;
+            clients[i].tx_mutex = xSemaphoreCreateMutex();
             return &clients[i];
         }
     }
     return NULL;
 }
+
 
 static void free_client(Socket_t sock)
 {
@@ -63,6 +67,13 @@ static void free_client(Socket_t sock)
             clients[i].heartbeat_subscribed = pdFALSE;
             clients[i].socket = FREERTOS_INVALID_SOCKET;
         }
+
+        if (clients[i].tx_mutex)
+{
+    vSemaphoreDelete(clients[i].tx_mutex);
+    clients[i].tx_mutex = NULL;
+}
+
     }
 }
 
@@ -73,12 +84,33 @@ static BaseType_t recv_exact(Socket_t sock, uint8_t *buf, size_t len)
     while (received < len)
     {
         int r = FreeRTOS_recv(sock, buf + received, len - received, 0);
-        if (r <= 0)
+
+        if (r > 0)
+        {
+            received += (size_t)r;
+        }
+        else if (r == 0)
+        {
+            /* Peer closed connection */
             return pdFAIL;
-        received += (size_t)r;
+        }
+        else
+        {
+            /* Timeout or error */
+            if (r == -pdFREERTOS_ERRNO_EWOULDBLOCK)
+            {
+                /* Timeout → retry */
+                continue;
+            }
+
+            /* Real error */
+            return pdFAIL;
+        }
     }
+
     return pdPASS;
 }
+
 
 /* =========================================================
  * Public entry
@@ -162,26 +194,30 @@ static void someip_server_task(void *arg)
         {
             someip_header_t hdr;
 
+            /* ---------- FIX: distinguish timeout vs disconnect ---------- */
             if (recv_exact(client_sock, rx_buf, sizeof(hdr)) != pdPASS)
+            {
+                /* real socket error */
                 break;
+            }
 
             memcpy(&hdr, rx_buf, sizeof(hdr));
             someip_ntoh_header(&hdr);
 
             if (someip_validate_header(&hdr) != pdPASS)
-{
-    hdr.message_type = SOMEIP_MSG_ERROR;
-    hdr.return_code  = SOMEIP_RET_E_MALFORMED_MESSAGE;
-    hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
-    goto send;
-}
+            {
+                hdr.message_type = SOMEIP_MSG_ERROR;
+                hdr.return_code  = SOMEIP_RET_E_MALFORMED_MESSAGE;
+                hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
+                goto send;
+            }
 
             uint32_t payload_len =
                 hdr.length - SOMEIP_HEADER_PAYLOAD_OFFSET;
 
             if (payload_len >
                 (SOMEIP_RX_BUFFER_SIZE - sizeof(hdr)))
-                break;
+                continue;
 
             if (payload_len > 0 &&
                 recv_exact(client_sock,
@@ -191,22 +227,21 @@ static void someip_server_task(void *arg)
 
             /* ---- Subscription handling ---- */
             if (hdr.service_id == 0x1234 && hdr.method_id == 0x0100)
-{
-    client->heartbeat_subscribed = pdTRUE;
-    hdr.message_type = SOMEIP_MSG_RESPONSE;
-    hdr.return_code  = SOMEIP_RET_OK;
-    hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
-    goto send;
-}
-else if (hdr.service_id == 0x1234 && hdr.method_id == 0x0101)
-{
-    client->heartbeat_subscribed = pdFALSE;
-    hdr.message_type = SOMEIP_MSG_RESPONSE;
-    hdr.return_code  = SOMEIP_RET_OK;
-    hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
-    goto send;
-}
-
+            {
+                client->heartbeat_subscribed = pdTRUE;
+                hdr.message_type = SOMEIP_MSG_RESPONSE;
+                hdr.return_code  = SOMEIP_RET_OK;
+                hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
+                goto send;
+            }
+            else if (hdr.service_id == 0x1234 && hdr.method_id == 0x0101)
+            {
+                client->heartbeat_subscribed = pdFALSE;
+                hdr.message_type = SOMEIP_MSG_RESPONSE;
+                hdr.return_code  = SOMEIP_RET_OK;
+                hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET;
+                goto send;
+            }
 
             /* ---- Normal dispatch ---- */
             someip_service_handler_t handler =
@@ -238,12 +273,10 @@ else if (hdr.service_id == 0x1234 && hdr.method_id == 0x0101)
         send:
             someip_hton_header(&hdr);
             memcpy(tx_buf, &hdr, sizeof(hdr));
-            FreeRTOS_send(
-                client_sock,
-                tx_buf,
-                sizeof(hdr) + resp_len,
-                0
-            );
+            xSemaphoreTake(client->tx_mutex, portMAX_DELAY);
+FreeRTOS_send(client_sock, tx_buf, sizeof(hdr) + resp_len, 0);
+xSemaphoreGive(client->tx_mutex);
+
         }
 
         FreeRTOS_printf(("SOME/IP: Client disconnected\r\n"));
@@ -288,12 +321,15 @@ static void someip_notification_task(void *arg)
 
             someip_hton_header(hdr);
 
-            FreeRTOS_send(
-                clients[i].socket,
-                tx_buf,
-                sizeof(*hdr) + sizeof(alive),
-                0
-            );
+            xSemaphoreTake(clients[i].tx_mutex, portMAX_DELAY);
+FreeRTOS_send(
+    clients[i].socket,
+    tx_buf,
+    sizeof(*hdr) + sizeof(alive),
+    0
+);
+xSemaphoreGive(clients[i].tx_mutex);
+
         }
     }
 }

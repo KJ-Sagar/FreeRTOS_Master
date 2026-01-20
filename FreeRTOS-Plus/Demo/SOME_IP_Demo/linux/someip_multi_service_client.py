@@ -46,7 +46,7 @@ HEADER_FMT  = "!HHIHHBBBB"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
 # ==========================================================
-# Global session counter
+# Global state
 # ==========================================================
 session_id = 1
 running = True
@@ -65,8 +65,7 @@ def recv_exact(sock, length):
 
 def build_request(service_id, method_id, payload=b""):
     global session_id
-
-    length = 8 + len(payload)  # SOME/IP length semantics
+    length = 8 + len(payload)
 
     hdr = struct.pack(
         HEADER_FMT,
@@ -85,7 +84,7 @@ def build_request(service_id, method_id, payload=b""):
     return hdr + payload
 
 # ==========================================================
-# Receiver thread (responses + notifications)
+# Receiver thread
 # ==========================================================
 def receiver(sock):
     global running
@@ -114,9 +113,11 @@ def receiver(sock):
 
         # ---------------- NOTIFICATION ----------------
         if msg_type == SOMEIP_MSG_NOTIFICATION:
-            if service_id == SERVICE_HEARTBEAT:
+            if service_id == SERVICE_HEARTBEAT and len(payload) == 4:
                 alive = struct.unpack("!I", payload)[0]
                 print(f"[NOTIFY] Heartbeat alive = {alive}")
+            else:
+                print("[NOTIFY] Unknown or malformed notification")
             continue
 
         # ---------------- ERROR ----------------
@@ -126,16 +127,25 @@ def receiver(sock):
 
         # ---------------- RESPONSE ----------------
         if service_id == SERVICE_HEARTBEAT:
-            alive = struct.unpack("!I", payload)[0]
-            print(f"[RESP] Heartbeat = {alive}")
+            if len(payload) == 4:
+                alive = struct.unpack("!I", payload)[0]
+                print(f"[RESP] Heartbeat = {alive}")
+            else:
+                print("[RESP] Heartbeat ACK")
 
         elif service_id == SERVICE_SENSOR:
-            temp = struct.unpack("!i", payload)[0]
-            print(f"[RESP] Temperature = {temp}")
+            if len(payload) == 4:
+                temp = struct.unpack("!i", payload)[0]
+                print(f"[RESP] Temperature = {temp}")
+            else:
+                print("[RESP] Sensor ACK")
 
         elif service_id == SERVICE_ENGINE:
-            rpm = struct.unpack("!H", payload)[0]
-            print(f"[RESP] RPM = {rpm}")
+            if len(payload) == 2:
+                rpm = struct.unpack("!H", payload)[0]
+                print(f"[RESP] RPM = {rpm}")
+            else:
+                print("[RESP] Engine ACK")
 
 # ==========================================================
 # Main
@@ -147,12 +157,12 @@ print("[CLIENT] Connected")
 
 threading.Thread(target=receiver, args=(sock,), daemon=True).start()
 
-# ---------------- Subscribe to heartbeat notifications ----------------
+# ---------------- Subscribe ----------------
 print("[TX] Subscribe to heartbeat notifications")
 sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_SUBSCRIBE))
 time.sleep(1)
 
-# ---------------- Periodic multi-service requests ----------------
+# ---------------- Periodic requests ----------------
 try:
     while running:
         sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_HEARTBEAT))
