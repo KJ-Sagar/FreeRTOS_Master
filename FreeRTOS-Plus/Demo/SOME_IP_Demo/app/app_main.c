@@ -1,15 +1,15 @@
 #include "FreeRTOS.h"
 #include "FreeRTOS_IP.h"
+
 #include "app_config.h"
 #include "app_main.h"
-#include "demo_echo.h"
 #include "heartbeat_service.h"
 #include "demo_someip/demo_someip.h"
+#include "demo_someip/someip_server.h"
+
+#include "task.h"
 
 /*-----------------------------------------------------------*/     
-
-HeartbeatService_Init();
-someip_server_start();
 
 void vApplicationStart( void )
 {

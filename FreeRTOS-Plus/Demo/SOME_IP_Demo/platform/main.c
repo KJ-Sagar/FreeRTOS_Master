@@ -47,6 +47,8 @@ extern void main_tcp_network_init( void );
 int main( void )
 {
     main_tcp_network_init();
+    HeartbeatService_Init();
+    someip_server_start();
     for( ;; )
     {
     }

@@ -3,17 +3,27 @@
 
 #include <stdint.h>
 
-/* ================= Versions ================= */
+/* =========================================================
+ * SOME/IP Versions
+ * ========================================================= */
 #define SOMEIP_PROTOCOL_VERSION   0x01
 #define SOMEIP_INTERFACE_VERSION  0x01
 
-/* ================= Length semantics ================= */
-/* SOME/IP length = everything AFTER service_id & method_id */
+/* =========================================================
+ * SOME/IP Length Semantics
+ *
+ * Length = everything AFTER service_id & method_id
+ * (client_id + session_id + protocol_version +
+ *  interface_version + message_type + return_code + payload)
+ * ========================================================= */
 #define SOMEIP_HEADER_PAYLOAD_OFFSET 8U
+
 #define SOMEIP_LENGTH_FIELD(payload_len) \
     ((payload_len) + SOMEIP_HEADER_PAYLOAD_OFFSET)
 
-/* ================= Message types ================= */
+/* =========================================================
+ * SOME/IP Message Types
+ * ========================================================= */
 typedef enum
 {
     SOMEIP_MSG_REQUEST      = 0x00,
@@ -22,7 +32,9 @@ typedef enum
     SOMEIP_MSG_ERROR        = 0x81
 } someip_message_type_t;
 
-/* ================= Return codes ================= */
+/* =========================================================
+ * SOME/IP Return Codes (subset, expandable)
+ * ========================================================= */
 typedef enum
 {
     SOMEIP_RET_OK                  = 0x00,
@@ -31,8 +43,17 @@ typedef enum
     SOMEIP_RET_E_MALFORMED_MESSAGE = 0x09
 } someip_return_code_t;
 
-/* ================= Header ================= */
-typedef struct __attribute__((packed))
+/* =========================================================
+ * SOME/IP Header
+ * ========================================================= */
+#if defined(__GNUC__)
+#define SOMEIP_PACKED __attribute__((packed))
+#else
+#define SOMEIP_PACKED
+#warning "Packed attribute not defined for this compiler"
+#endif
+
+typedef struct SOMEIP_PACKED
 {
     uint16_t service_id;
     uint16_t method_id;
@@ -45,4 +66,13 @@ typedef struct __attribute__((packed))
     uint8_t  return_code;
 } someip_header_t;
 
-#endif
+/* =========================================================
+ * Compile-time sanity check
+ * ========================================================= */
+#define SOMEIP_HEADER_SIZE 16U
+
+typedef char someip_header_size_check[
+    (sizeof(someip_header_t) == SOMEIP_HEADER_SIZE) ? 1 : -1
+];
+
+#endif /* SOMEIP_TYPES_H */

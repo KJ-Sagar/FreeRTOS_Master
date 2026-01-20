@@ -1,10 +1,12 @@
 #include "heartbeat_service.h"
 #include "app/demos/demo_someip/someip_core/someip_core.h"
+#include "app/demos/demo_someip/someip_core/someip_types.h"
 #include "FreeRTOS.h"
+#include "FreeRTOS_IP.h"
 #include <string.h>
 
-#define SOMEIP_SERVICE_ID_HEARTBEAT  0x1234
-#define SOMEIP_METHOD_ID_HEARTBEAT   0x0001
+#define SOMEIP_SERVICE_ID_HEARTBEAT  0x1234U
+#define SOMEIP_METHOD_ID_HEARTBEAT   0x0001U
 
 static BaseType_t heartbeat_handler(
     uint16_t service_id,
@@ -19,13 +21,16 @@ static BaseType_t heartbeat_handler(
     (void)req;
     (void)req_len;
 
+    if (resp == NULL || resp_len == NULL || ret == NULL)
+        return pdFAIL;
+
     if (method_id != SOMEIP_METHOD_ID_HEARTBEAT)
     {
         *ret = SOMEIP_RET_E_UNKNOWN_METHOD;
         return pdFAIL;
     }
 
-    uint32_t alive = FreeRTOS_htonl(1);
+    uint32_t alive = FreeRTOS_htonl(1U);
     memcpy(resp, &alive, sizeof(alive));
     *resp_len = sizeof(alive);
     *ret = SOMEIP_RET_OK;
@@ -35,7 +40,7 @@ static BaseType_t heartbeat_handler(
 
 void HeartbeatService_Init(void)
 {
-    someip_register_service(
+    (void)someip_register_service(
         SOMEIP_SERVICE_ID_HEARTBEAT,
         heartbeat_handler);
 }

@@ -1,8 +1,14 @@
 #include "someip_protocol.h"
-#include "FreeRTOS.h"
 
+/*
+ * Convert SOME/IP header fields from host to network byte order.
+ * Only multi-byte numeric fields are converted.
+ */
 void someip_hton_header(someip_header_t *hdr)
 {
+    if (hdr == NULL)
+        return;
+
     hdr->service_id = FreeRTOS_htons(hdr->service_id);
     hdr->method_id  = FreeRTOS_htons(hdr->method_id);
     hdr->length     = FreeRTOS_htonl(hdr->length);
@@ -10,8 +16,14 @@ void someip_hton_header(someip_header_t *hdr)
     hdr->session_id = FreeRTOS_htons(hdr->session_id);
 }
 
+/*
+ * Convert SOME/IP header fields from network to host byte order.
+ */
 void someip_ntoh_header(someip_header_t *hdr)
 {
+    if (hdr == NULL)
+        return;
+
     hdr->service_id = FreeRTOS_ntohs(hdr->service_id);
     hdr->method_id  = FreeRTOS_ntohs(hdr->method_id);
     hdr->length     = FreeRTOS_ntohl(hdr->length);
