@@ -1,6 +1,8 @@
 #include "demo_selector.h"
 #include "app_config.h"
-#include "heartbeat_service.h"
+#include "app/demos/demo_someip/heartbeat_service.h"
+#include "app/demos/demo_someip/sensor_service.h"
+#include "app/demos/demo_someip/engine_service.h"
 #include "FreeRTOS_IP.h"
 
 void vSelectAndStartDemo( void )

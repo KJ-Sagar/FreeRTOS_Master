@@ -3,7 +3,9 @@
 
 #include "app_config.h"
 #include "app_main.h"
-#include "heartbeat_service.h"
+#include "app/demos/demo_someip/heartbeat_service.h"
+#include "app/demos/demo_someip/sensor_service.h"
+#include "app/demos/demo_someip/engine_service.h"
 #include "demo_someip/demo_someip.h"
 #include "demo_someip/someip_server.h"
 

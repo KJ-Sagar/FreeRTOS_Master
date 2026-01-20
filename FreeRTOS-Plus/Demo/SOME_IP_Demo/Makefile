@@ -62,9 +62,10 @@ SOURCE_FILES += \
     app/demos/demo_someip/someip_core/someip_core.c \
     app/demos/demo_someip/someip_core/someip_validate.c
 
-# --- Existing FreeRTOS TCP demos reused ---
 SOURCE_FILES += \
-   heartbeat_service.c
+   app/demos/demo_someip/heartbeat_service.c \
+   app/demos/demo_someip/sensor_service.c \
+   app/demos/demo_someip/engine_service.c
 
 # =========================================================
 # FreeRTOS Kernel

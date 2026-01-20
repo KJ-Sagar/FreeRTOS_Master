@@ -1,12 +1,13 @@
 #include "heartbeat_service.h"
-#include "app/demos/demo_someip/someip_core/someip_core.h"
-#include "app/demos/demo_someip/someip_core/someip_types.h"
+#include "someip_core/someip_core.h"
+#include "someip_core/someip_types.h"
 #include "FreeRTOS.h"
 #include "FreeRTOS_IP.h"
 #include <string.h>
 
 #define SOMEIP_SERVICE_ID_HEARTBEAT  0x1234U
 #define SOMEIP_METHOD_ID_HEARTBEAT   0x0001U
+#define SOMEIP_SERVICE_ID_SENSOR     0x1001
 
 static BaseType_t heartbeat_handler(
     uint16_t service_id,
