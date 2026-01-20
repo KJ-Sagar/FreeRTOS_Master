@@ -4,7 +4,7 @@
 #include "heartbeat_service.h"
 #include "sensor_service.h"
 #include "engine_service.h"
-
+#include "sd_udp_server.h"
 #include "FreeRTOS.h"
 #include "FreeRTOS_IP.h"
 
@@ -29,9 +29,10 @@ void demo_someip_start(void)
     EngineService_Init();
     FreeRTOS_printf(("DEMO_SOMEIP: Engine service registered\r\n"));
 
-    /* Start SOME/IP server */
     sd_udp_server_start();
-    FreeRTOS_printf(("DEMO_SOMEIP: UDP Service Discovery server start requested\r\n"));
+    FreeRTOS_printf(("DEMO_SOMEIP: UDP Service Discovery started\r\n"));
+
     someip_server_start();
-    FreeRTOS_printf(("DEMO_SOMEIP: SOME/IP server start requested\r\n"));
+    FreeRTOS_printf(("DEMO_SOMEIP: SOME/IP server started\r\n"));   
+    /* Start SOME/IP server */
 }

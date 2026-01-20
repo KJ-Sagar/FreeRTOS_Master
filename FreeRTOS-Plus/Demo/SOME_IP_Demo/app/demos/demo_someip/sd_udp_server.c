@@ -8,62 +8,49 @@
 
 static void sd_udp_task(void *arg)
 {
-    (void)arg;
-
     Socket_t sock;
-    struct freertos_sockaddr bind_addr;
-    struct freertos_sockaddr from_addr;
-    socklen_t from_len;
-    uint8_t rx_buf[SD_BUF_SIZE];
+    struct freertos_sockaddr bind_addr, from_addr;
+    socklen_t from_len = sizeof(from_addr);
+    uint8_t rx_buf[64];
 
-    /* Create UDP socket */
     sock = FreeRTOS_socket(
         FREERTOS_AF_INET,
         FREERTOS_SOCK_DGRAM,
         FREERTOS_IPPROTO_UDP
     );
-
     configASSERT(sock != FREERTOS_INVALID_SOCKET);
 
-    /* Bind to 0.0.0.0:SD_UDP_PORT */
+    memset(&bind_addr, 0, sizeof(bind_addr));
     bind_addr.sin_port = FreeRTOS_htons(SD_UDP_PORT);
-    bind_addr.sin_address.ulIP_IPv4 = 0;   /* ANY */
+    bind_addr.sin_address.ulIP_IPv4 = FreeRTOS_htonl(0);
 
-    configASSERT(
-        FreeRTOS_bind(sock, &bind_addr, sizeof(bind_addr)) == 0
-    );
+    FreeRTOS_bind(sock, &bind_addr, sizeof(bind_addr));
 
     FreeRTOS_printf(("SD: UDP listening on %u\r\n", SD_UDP_PORT));
 
     for (;;)
     {
-        from_len = sizeof(from_addr);
-
-        int rx_len = FreeRTOS_recvfrom(
-            sock,
-            rx_buf,
-            sizeof(rx_buf),
-            0,
-            &from_addr,
-            &from_len
+        int len = FreeRTOS_recvfrom(
+            sock, rx_buf, sizeof(rx_buf), 0,
+            &from_addr, &from_len
         );
+        FreeRTOS_printf((
+    "SD: Request received (%d bytes)\r\n", len
+));
 
-        if (rx_len <= 0)
-        {
+        if (len <= 0)
             continue;
-        }
 
         FreeRTOS_printf((
-            "SD: request from %lx:%u\r\n",
+            "SD: Request from %lx:%u\r\n",
             FreeRTOS_ntohl(from_addr.sin_address.ulIP_IPv4),
             FreeRTOS_ntohs(from_addr.sin_port)
         ));
 
-        /* Simple unicast SD response: list of service IDs */
         uint16_t services[] = {
-            FreeRTOS_htons(0x1234), /* Heartbeat */
-            FreeRTOS_htons(0x1001), /* Sensor */
-            FreeRTOS_htons(0x1002)  /* Engine */
+            FreeRTOS_htons(0x1234),
+            FreeRTOS_htons(0x1001),
+            FreeRTOS_htons(0x1002)
         };
 
         FreeRTOS_sendto(

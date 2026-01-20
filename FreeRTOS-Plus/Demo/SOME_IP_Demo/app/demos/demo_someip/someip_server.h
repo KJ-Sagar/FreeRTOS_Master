@@ -12,6 +12,7 @@
 #define SOMEIP_SERVER_PORT        30509U
 #define SOMEIP_RX_BUFFER_SIZE     256U
 #define SOMEIP_TX_BUFFER_SIZE     256U
+#define SOMEIP_NOTIFY_UDP_PORT    30510
 
 /*
  * Start the SOME/IP server runtime.
