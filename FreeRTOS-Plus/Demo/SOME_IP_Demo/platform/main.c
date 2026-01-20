@@ -27,7 +27,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_IP.h"
-
+#include "app/demos/demo_someip/sd_udp_server.h"
 #include "FreeRTOSConfig.h"
 #include "FreeRTOSIPConfig.h"
 
@@ -48,7 +48,7 @@ int main( void )
 {
     main_tcp_network_init();
     HeartbeatService_Init();
-    someip_server_start();
+        
     for( ;; )
     {
     }

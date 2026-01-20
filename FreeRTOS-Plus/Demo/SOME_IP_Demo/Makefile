@@ -60,6 +60,7 @@ SOURCE_FILES += \
     app/demos/demo_someip/someip_server.c \
     app/demos/demo_someip/someip_protocol.c \
     app/demos/demo_someip/someip_core/someip_core.c \
+    app/demos/demo_someip/sd_udp_server.c \
     app/demos/demo_someip/someip_core/someip_validate.c
 
 SOURCE_FILES += \
