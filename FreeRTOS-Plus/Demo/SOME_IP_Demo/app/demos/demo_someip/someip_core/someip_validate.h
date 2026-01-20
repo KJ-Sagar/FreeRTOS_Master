@@ -1,11 +1,9 @@
-#pragma once
+#ifndef SOMEIP_VALIDATE_H
+#define SOMEIP_VALIDATE_H
 
+#include "FreeRTOS.h"
 #include "someip_types.h"
-#include "someip_errors.h"
 
-/*
- * Validate a SOME/IP header according to core rules.
- * Transport-agnostic.
- */
-someip_return_code_t someip_validate_header(
-    const someip_header_t *hdr);
+BaseType_t someip_validate_header(const someip_header_t *hdr);
+
+#endif

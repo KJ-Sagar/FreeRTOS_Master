@@ -1,29 +1,19 @@
 #include "someip_validate.h"
 
-/*
- * Basic SOME/IP header validation
- * This will be extended incrementally
- */
-someip_return_code_t someip_validate_header(
-    const someip_header_t *hdr)
+BaseType_t someip_validate_header(const someip_header_t *hdr)
 {
     if (hdr == NULL)
-        return SOMEIP_E_MALFORMED_MESSAGE;
+        return pdFAIL;
 
-    /* Protocol version check (AUTOSAR mandates 0x01) */
-    if (hdr->protocol_version != 0x01)
-        return SOMEIP_E_MALFORMED_MESSAGE;
+    if (hdr->protocol_version != SOMEIP_PROTOCOL_VERSION)
+        return pdFAIL;
 
-    /* Message type sanity */
-    switch (hdr->message_type)
-    {
-        case SOMEIP_MSG_REQUEST:
-        case SOMEIP_MSG_NOTIFICATION:
-            break;
+    if (hdr->interface_version != SOMEIP_INTERFACE_VERSION)
+        return pdFAIL;
 
-        default:
-            return SOMEIP_E_MALFORMED_MESSAGE;
-    }
+    if (hdr->message_type != SOMEIP_MSG_REQUEST &&
+        hdr->message_type != SOMEIP_MSG_NOTIFICATION)
+        return pdFAIL;
 
-    return SOMEIP_E_OK;
+    return pdPASS;
 }

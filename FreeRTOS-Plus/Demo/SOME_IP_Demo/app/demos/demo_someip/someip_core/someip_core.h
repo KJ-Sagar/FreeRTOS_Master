@@ -1,27 +1,25 @@
-#pragma once
+#ifndef SOMEIP_CORE_H
+#define SOMEIP_CORE_H
 
+#include "FreeRTOS.h"
 #include "someip_types.h"
-#include "someip_errors.h"
 
-/*
- * SOME/IP processing context
- * Transport-agnostic
- */
-typedef struct
-{
-    /* Request */
-    someip_header_t *request;
-    uint8_t         *request_payload;
-    uint32_t         request_len;
+#define SOMEIP_MAX_SERVICES 8
 
-    /* Response */
-    someip_header_t *response;
-    uint8_t         *response_payload;
-    uint32_t         response_len;
-} someip_context_t;
+typedef BaseType_t (*someip_service_handler_t)(
+    uint16_t service_id,
+    uint16_t method_id,
+    const uint8_t *req_payload,
+    uint32_t req_len,
+    uint8_t *resp_payload,
+    uint32_t *resp_len,
+    someip_return_code_t *ret_code
+);
 
-/*
- * Core SOME/IP message processor
- * (implementation comes later)
- */
-someip_return_code_t someip_process_message(someip_context_t *ctx);
+BaseType_t someip_register_service(
+    uint16_t service_id,
+    someip_service_handler_t handler);
+
+someip_service_handler_t someip_find_service(uint16_t service_id);
+
+#endif

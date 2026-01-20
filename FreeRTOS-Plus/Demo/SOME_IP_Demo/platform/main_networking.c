@@ -33,7 +33,7 @@
 #include "FreeRTOS_Sockets.h"
 #include "CMSIS/CMSDK_CM3.h"
 #include "main_networking.h"
-#include "tcp_heartbeat_demo.h"
+#include "heartbeat_service.h"
 #include "app_main.h"
 
 /*-----------------------------------------------------------*/

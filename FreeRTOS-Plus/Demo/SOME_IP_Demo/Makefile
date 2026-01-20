@@ -69,7 +69,7 @@ SOURCE_FILES += \
 # --- Existing FreeRTOS TCP demos reused ---
 SOURCE_FILES += \
     TCPEchoClient_SingleTasks.c \
-    tcp_heartbeat_demo.c
+    heartbeat_service.c
 
 # =========================================================
 # FreeRTOS Kernel
