@@ -1,4 +1,5 @@
 #include "someip_protocol.h"
+#include "someip_core/someip_types.h"
 
 /*
  * Convert SOME/IP header fields from host to network byte order.

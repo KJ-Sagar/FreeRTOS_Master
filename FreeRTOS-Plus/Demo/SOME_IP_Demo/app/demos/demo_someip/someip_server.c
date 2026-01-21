@@ -26,7 +26,6 @@ typedef struct
     Socket_t socket;
     BaseType_t active;
     BaseType_t heartbeat_subscribed;
-    SemaphoreHandle_t tx_mutex;
 } someip_client_ctx_t;
 
 static someip_client_ctx_t clients[SOMEIP_MAX_CLIENTS];
@@ -66,7 +65,6 @@ static someip_client_ctx_t *alloc_client(Socket_t sock)
             clients[i].active = pdTRUE;
             clients[i].socket = sock;
             clients[i].heartbeat_subscribed = pdFALSE;
-            clients[i].tx_mutex = xSemaphoreCreateMutex();
             return &clients[i];
         }
     }
@@ -81,13 +79,6 @@ static void free_client(Socket_t sock)
         {
             clients[i].active = pdFALSE;
             clients[i].heartbeat_subscribed = pdFALSE;
-
-            if (clients[i].tx_mutex)
-            {
-                vSemaphoreDelete(clients[i].tx_mutex);
-                clients[i].tx_mutex = NULL;
-            }
-
             clients[i].socket = FREERTOS_INVALID_SOCKET;
         }
     }
@@ -175,14 +166,8 @@ static void someip_server_task(void *arg)
         {
             someip_header_t hdr;
 
-            if (recv_exact(client_sock,
-                           rx_buf,
-                           sizeof(someip_header_t)) != pdPASS)
-            {
-                if (client->heartbeat_subscribed)
-                    continue;
+            if (recv_exact(client_sock, rx_buf, sizeof(hdr)) != pdPASS)
                 break;
-            }
 
             memcpy(&hdr, rx_buf, sizeof(hdr));
             someip_ntoh_header(&hdr);
@@ -196,8 +181,7 @@ static void someip_server_task(void *arg)
             uint32_t payload_len =
                 hdr.length - SOMEIP_HEADER_PAYLOAD_OFFSET;
 
-            if (payload_len >
-                (SOMEIP_RX_BUFFER_SIZE - sizeof(hdr)))
+            if (payload_len > (SOMEIP_RX_BUFFER_SIZE - sizeof(hdr)))
                 break;
 
             if (payload_len > 0 &&
@@ -206,66 +190,62 @@ static void someip_server_task(void *arg)
                            payload_len) != pdPASS)
                 break;
 
+            /* ---- Subscribe / Unsubscribe ---- */
             if (hdr.method_id == SOMEIP_METHOD_SUBSCRIBE)
             {
                 client->heartbeat_subscribed = pdTRUE;
                 hdr.message_type = SOMEIP_MSG_RESPONSE;
                 hdr.return_code  = SOMEIP_RET_OK;
                 hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
-                goto send;
+                payload_len      = 0;
             }
-
-            if (hdr.method_id == SOMEIP_METHOD_UNSUBSCRIBE)
+            else if (hdr.method_id == SOMEIP_METHOD_UNSUBSCRIBE)
             {
                 client->heartbeat_subscribed = pdFALSE;
                 hdr.message_type = SOMEIP_MSG_RESPONSE;
                 hdr.return_code  = SOMEIP_RET_OK;
                 hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
-                goto send;
+                payload_len      = 0;
             }
-
-            someip_service_handler_t handler =
-                someip_find_service(hdr.service_id);
-
-            uint32_t resp_len = 0;
-            someip_return_code_t ret = SOMEIP_RET_OK;
-
-            if (!handler ||
-                handler(hdr.service_id,
-                        hdr.method_id,
-                        rx_buf + sizeof(hdr),
-                        payload_len,
-                        tx_buf + sizeof(hdr),
-                        &resp_len,
-                        &ret) != pdPASS)
+            else
             {
-                ret = SOMEIP_RET_E_UNKNOWN_METHOD;
+                someip_service_handler_t handler =
+                    someip_find_service(hdr.service_id);
+
+                someip_return_code_t ret = SOMEIP_RET_OK;
+
+                if (!handler ||
+                    handler(hdr.service_id,
+                            hdr.method_id,
+                            rx_buf + sizeof(hdr),
+                            payload_len,
+                            tx_buf + sizeof(hdr),
+                            &payload_len,
+                            &ret) != pdPASS)
+                {
+                    ret = SOMEIP_RET_E_UNKNOWN_METHOD;
+                }
+
+                hdr.message_type =
+                    (ret == SOMEIP_RET_OK)
+                        ? SOMEIP_MSG_RESPONSE
+                        : SOMEIP_MSG_ERROR;
+
+                hdr.return_code = ret;
+                hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET + payload_len;
             }
 
-            hdr.message_type =
-                (ret == SOMEIP_RET_OK)
-                    ? SOMEIP_MSG_RESPONSE
-                    : SOMEIP_MSG_ERROR;
-            hdr.return_code = ret;
-            hdr.length = SOMEIP_HEADER_PAYLOAD_OFFSET + resp_len;
+            uint32_t total_len =
+                sizeof(someip_header_t) + payload_len;
 
-        send:
             someip_hton_header(&hdr);
             memcpy(tx_buf, &hdr, sizeof(hdr));
 
-            xSemaphoreTake(client->tx_mutex, portMAX_DELAY);
-            FreeRTOS_send(
-                client_sock,
-                tx_buf,
-                sizeof(hdr) + (hdr.length - SOMEIP_HEADER_PAYLOAD_OFFSET),
-                0
-            );
-            xSemaphoreGive(client->tx_mutex);
+            FreeRTOS_send(client_sock, tx_buf, total_len, 0);
         }
 
         FreeRTOS_printf(("SOME/IP: Client disconnected\r\n"));
         free_client(client_sock);
-        FreeRTOS_shutdown(client_sock, FREERTOS_SHUT_RDWR);
         FreeRTOS_closesocket(client_sock);
     }
 }
@@ -290,6 +270,10 @@ static void someip_notification_task(void *arg)
                 !clients[i].heartbeat_subscribed)
                 continue;
 
+            uint32_t payload_len = sizeof(uint32_t);
+            uint32_t total_len =
+                sizeof(someip_header_t) + payload_len;
+
             hdr->service_id   = SERVICE_HEARTBEAT;
             hdr->method_id    = METHOD_HEARTBEAT;
             hdr->client_id    = 0;
@@ -298,21 +282,21 @@ static void someip_notification_task(void *arg)
             hdr->interface_version = SOMEIP_INTERFACE_VERSION;
             hdr->message_type = SOMEIP_MSG_NOTIFICATION;
             hdr->return_code  = SOMEIP_RET_OK;
-            hdr->length       = SOMEIP_HEADER_PAYLOAD_OFFSET + 4;
+            hdr->length       = SOMEIP_HEADER_PAYLOAD_OFFSET + payload_len;
 
             uint32_t alive = FreeRTOS_htonl(1);
             memcpy(tx_buf + sizeof(*hdr), &alive, sizeof(alive));
 
             someip_hton_header(hdr);
 
-            xSemaphoreTake(clients[i].tx_mutex, portMAX_DELAY);
             FreeRTOS_send(
                 clients[i].socket,
                 tx_buf,
-                sizeof(*hdr) + sizeof(alive),
+                total_len,
                 0
             );
-            xSemaphoreGive(clients[i].tx_mutex);
+
+            FreeRTOS_printf(("SOME/IP: Heartbeat notification sent\r\n"));
         }
     }
 }
