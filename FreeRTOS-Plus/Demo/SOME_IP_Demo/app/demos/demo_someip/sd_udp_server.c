@@ -1,38 +1,32 @@
+#include "sd_udp_server.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
 #include "FreeRTOS_IP.h"
-
 #include <string.h>
-#include <stdint.h>
 
-/* SD listens on SOME/IP-SD well-known port */
+/* ================= Configuration ================= */
 #define SD_UDP_PORT 30490
 
-static void sd_udp_task(void *arg);
-
-void sd_udp_server_start(void)
+/* ================= Services offered ================= */
+static const uint16_t offered_services[] =
 {
-    xTaskCreate(
-        sd_udp_task,
-        "SD_UDP",
-        configMINIMAL_STACK_SIZE * 2,
-        NULL,
-        tskIDLE_PRIORITY + 1,
-        NULL
-    );
-}
+    0x1234, /* Heartbeat */
+    0x1001, /* Sensor */
+    0x1002  /* Engine */
+};
 
 static void sd_udp_task(void *arg)
 {
     (void)arg;
 
     Socket_t sock;
-    struct freertos_sockaddr local_addr;
-    struct freertos_sockaddr from;
-    socklen_t from_len = sizeof(from);
+    struct freertos_sockaddr local, remote;
+    socklen_t remote_len = sizeof(remote);
 
-    uint8_t rx_buf[64];
+    uint8_t rx_buf[1];
+    uint8_t tx_buf[32];
+    size_t tx_len;
 
     sock = FreeRTOS_socket(
         FREERTOS_AF_INET,
@@ -42,47 +36,72 @@ static void sd_udp_task(void *arg)
 
     configASSERT(sock != FREERTOS_INVALID_SOCKET);
 
-    local_addr.sin_port = FreeRTOS_htons(SD_UDP_PORT);
-    FreeRTOS_bind(sock, &local_addr, sizeof(local_addr));
+    /* Bind to SD port */
+    local.sin_port = FreeRTOS_htons(SD_UDP_PORT);
+    local.sin_address.ulIP_IPv4 = FreeRTOS_GetIPAddress();
 
-    FreeRTOS_printf(("SD: UDP listening on %u\r\n", SD_UDP_PORT));
+    FreeRTOS_bind(sock, &local, sizeof(local));
+
+    FreeRTOS_printf((
+        "SD: UDP unicast SD server listening on %u\r\n",
+        SD_UDP_PORT
+    ));
 
     for (;;)
     {
-        int len = FreeRTOS_recvfrom(
-            sock,
-            rx_buf,
-            sizeof(rx_buf),
-            0,
-            &from,
-            &from_len
-        );
-
-        /* IMPORTANT: ignore timeouts / errors */
-        if (len <= 0)
+        /* Wait for FindService */
+        if (FreeRTOS_recvfrom(
+                sock,
+                rx_buf,
+                sizeof(rx_buf),
+                0,
+                &remote,
+                &remote_len) <= 0)
         {
             continue;
         }
 
-        FreeRTOS_printf(("SD: Request received (%d bytes)\r\n", len));
+        FreeRTOS_printf((
+            "SD: FindService from %lxip\r\n",
+            FreeRTOS_ntohl(remote.sin_address.ulIP_IPv4)
+        ));
 
-        /* ---- Send service list response ----
-         * Format: simple list of uint16_t service IDs
-         */
-        uint16_t services[] =
+        /* Build OfferService payload */
+        tx_len = 0;
+        for (size_t i = 0;
+             i < (sizeof(offered_services) / sizeof(offered_services[0]));
+             i++)
         {
-            FreeRTOS_htons(0x1234), /* Heartbeat */
-            FreeRTOS_htons(0x1001), /* Sensor */
-            FreeRTOS_htons(0x1002)  /* Engine */
-        };
+            uint16_t sid = FreeRTOS_htons(offered_services[i]);
+            memcpy(&tx_buf[tx_len], &sid, sizeof(sid));
+            tx_len += sizeof(sid);
+        }
 
+        /* Unicast reply */
         FreeRTOS_sendto(
             sock,
-            services,
-            sizeof(services),
+            tx_buf,
+            tx_len,
             0,
-            &from,
-            from_len
+            &remote,
+            remote_len
         );
+
+        FreeRTOS_printf((
+            "SD: Offer sent (%u bytes)\r\n",
+            (unsigned)tx_len
+        ));
     }
+}
+
+void sd_udp_server_start(void)
+{
+    xTaskCreate(
+        sd_udp_task,
+        "SD_UDP",
+        configMINIMAL_STACK_SIZE,
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        NULL
+    );
 }
