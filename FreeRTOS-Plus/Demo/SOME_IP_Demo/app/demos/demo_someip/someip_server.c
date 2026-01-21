@@ -15,7 +15,7 @@
  * Configuration
  * ========================================================= */
 #define SOMEIP_MAX_CLIENTS        4
-#define SOMEIP_RECV_TIMEOUT_MS    5000
+#define SOMEIP_RECV_TIMEOUT_MS    1000
 #define SOMEIP_NOTIFY_PERIOD_MS   2000
 
 /* =========================================================
@@ -50,6 +50,7 @@ static BaseType_t recv_exact(Socket_t sock, uint8_t *buf, size_t len)
             return pdFAIL;
         received += (size_t)r;
     }
+
     return pdPASS;
 }
 
@@ -166,8 +167,14 @@ static void someip_server_task(void *arg)
         {
             someip_header_t hdr;
 
+            /* ---- Receive header ---- */
             if (recv_exact(client_sock, rx_buf, sizeof(hdr)) != pdPASS)
+            {
+                /* Silent subscribed clients must stay connected */
+                if (client->heartbeat_subscribed)
+                    continue;
                 break;
+            }
 
             memcpy(&hdr, rx_buf, sizeof(hdr));
             someip_ntoh_header(&hdr);
@@ -196,16 +203,16 @@ static void someip_server_task(void *arg)
                 client->heartbeat_subscribed = pdTRUE;
                 hdr.message_type = SOMEIP_MSG_RESPONSE;
                 hdr.return_code  = SOMEIP_RET_OK;
-                hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
                 payload_len      = 0;
+                hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
             }
             else if (hdr.method_id == SOMEIP_METHOD_UNSUBSCRIBE)
             {
                 client->heartbeat_subscribed = pdFALSE;
                 hdr.message_type = SOMEIP_MSG_RESPONSE;
                 hdr.return_code  = SOMEIP_RET_OK;
-                hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
                 payload_len      = 0;
+                hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
             }
             else
             {
@@ -274,15 +281,15 @@ static void someip_notification_task(void *arg)
             uint32_t total_len =
                 sizeof(someip_header_t) + payload_len;
 
-            hdr->service_id   = SERVICE_HEARTBEAT;
-            hdr->method_id    = METHOD_HEARTBEAT;
-            hdr->client_id    = 0;
-            hdr->session_id   = 0;
+            hdr->service_id        = SERVICE_HEARTBEAT;
+            hdr->method_id         = METHOD_HEARTBEAT;
+            hdr->client_id         = 0;
+            hdr->session_id        = 0;
             hdr->protocol_version  = SOMEIP_PROTOCOL_VERSION;
             hdr->interface_version = SOMEIP_INTERFACE_VERSION;
-            hdr->message_type = SOMEIP_MSG_NOTIFICATION;
-            hdr->return_code  = SOMEIP_RET_OK;
-            hdr->length       = SOMEIP_HEADER_PAYLOAD_OFFSET + payload_len;
+            hdr->message_type      = SOMEIP_MSG_NOTIFICATION;
+            hdr->return_code       = SOMEIP_RET_OK;
+            hdr->length            = SOMEIP_HEADER_PAYLOAD_OFFSET + payload_len;
 
             uint32_t alive = FreeRTOS_htonl(1);
             memcpy(tx_buf + sizeof(*hdr), &alive, sizeof(alive));
@@ -295,8 +302,6 @@ static void someip_notification_task(void *arg)
                 total_len,
                 0
             );
-
-            FreeRTOS_printf(("SOME/IP: Heartbeat notification sent\r\n"));
         }
     }
 }
