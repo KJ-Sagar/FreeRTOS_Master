@@ -3,6 +3,7 @@ import socket
 import struct
 import threading
 import time
+import sys
 
 # ==========================================================
 # Network
@@ -10,7 +11,6 @@ import time
 SERVER_IP   = "10.0.0.2"
 SERVER_PORT = 30509
 SD_UDP_PORT = 30490
-NOTIFY_UDP_PORT = 30510
 
 # ==========================================================
 # SOME/IP constants
@@ -26,15 +26,12 @@ SOMEIP_INTERFACE_VERSION = 0x01
 CLIENT_ID = 0x0001
 
 # ==========================================================
-# Services
+# Services / Methods
 # ==========================================================
 SERVICE_HEARTBEAT = 0x1234
 SERVICE_SENSOR    = 0x1001
 SERVICE_ENGINE    = 0x1002
 
-# ==========================================================
-# Methods
-# ==========================================================
 METHOD_HEARTBEAT       = 0x0001
 METHOD_SUBSCRIBE       = 0x0100
 METHOD_UNSUBSCRIBE     = 0x0101
@@ -61,8 +58,12 @@ def recv_exact(sock, length):
     while len(data) < length:
         try:
             chunk = sock.recv(length - len(data))
-        except ConnectionResetError:
+        except OSError:
             return None
+        if not chunk:
+            return None
+        data += chunk
+    return data
 
 def build_request(service_id, method_id, payload=b""):
     global session_id
@@ -85,24 +86,20 @@ def build_request(service_id, method_id, payload=b""):
     return hdr + payload
 
 # ==========================================================
-# UDP SERVICE DISCOVERY – Phase 1 (Unicast, Simple)
+# UDP Service Discovery (simple)
 # ==========================================================
 def udp_service_discovery():
     print("[SD] Sending UDP Service Discovery request")
 
-    sd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sd_sock.settimeout(1.0)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(1.0)
 
-    for attempt in range(3):
-        try:
-            sd_sock.sendto(b"\x00", (SERVER_IP, SD_UDP_PORT))
-            data, _ = sd_sock.recvfrom(256)
-            break
-        except socket.timeout:
-            print(f"[SD] Retry {attempt+1}")
-    else:
-        print("[SD] No response received")
-        sd_sock.close()
+    try:
+        sock.sendto(b"\x00", (SERVER_IP, SD_UDP_PORT))
+        data, _ = sock.recvfrom(256)
+    except socket.timeout:
+        print("[SD] No response")
+        sock.close()
         return
 
     print("[SD] Services offered:")
@@ -110,49 +107,10 @@ def udp_service_discovery():
         sid = struct.unpack_from("!H", data, i)[0]
         print(f"  Service ID: 0x{sid:04X}")
 
-    sd_sock.close()
+    sock.close()
 
 # ==========================================================
-# UDP Notification listener
-# ==========================================================    
-def udp_notification_listener():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("0.0.0.0", NOTIFY_UDP_PORT))
-
-    print(f"[UDP] Listening for notifications on {NOTIFY_UDP_PORT}")
-
-    while running:
-        try:
-            data, addr = sock.recvfrom(256)
-        except OSError:
-            break
-
-        if len(data) < HEADER_SIZE:
-            continue
-
-        (
-            service_id,
-            method_id,
-            length,
-            client_id,
-            sess,
-            proto,
-            iface,
-            msg_type,
-            ret
-        ) = struct.unpack(HEADER_FMT, data[:HEADER_SIZE])
-
-        payload = data[HEADER_SIZE:]
-        if length != len(payload) + 8:
-            continue
-        if msg_type == SOMEIP_MSG_NOTIFICATION:
-            if service_id == SERVICE_HEARTBEAT and len(payload) == 4:
-                alive = struct.unpack("!I", payload)[0]
-                print(f"[UDP NOTIFY] Heartbeat alive = {alive}")
-
-# ==========================================================
-# Receiver thread (TCP)
+# Receiver thread (TCP responses + notifications)
 # ==========================================================
 def receiver(sock):
     global running
@@ -179,12 +137,19 @@ def receiver(sock):
         payload_len = length - 8
         payload = recv_exact(sock, payload_len) if payload_len > 0 else b""
 
-        # ---------------- ERROR ----------------
+        # -------- ERROR --------
         if msg_type == SOMEIP_MSG_ERROR or ret != 0:
             print(f"[ERROR] service=0x{service_id:04X} method=0x{method_id:04X}")
             continue
 
-        # ---------------- RESPONSE ----------------
+        # -------- NOTIFICATION --------
+        if msg_type == SOMEIP_MSG_NOTIFICATION:
+            if service_id == SERVICE_HEARTBEAT and len(payload) == 4:
+                alive = struct.unpack("!I", payload)[0]
+                print(f"[NOTIFY] Heartbeat alive = {alive}")
+            continue
+
+        # -------- RESPONSE --------
         if service_id == SERVICE_HEARTBEAT and len(payload) == 4:
             print(f"[RESP] Heartbeat = {struct.unpack('!I', payload)[0]}")
 
@@ -197,12 +162,9 @@ def receiver(sock):
 # ==========================================================
 # Main
 # ==========================================================
-time.sleep(2)  # Wait for server to start
+time.sleep(2)
+
 udp_service_discovery()
-threading.Thread(
-    target=udp_notification_listener,
-    daemon=True
-).start()
 
 print(f"[CLIENT] Connecting to {SERVER_IP}:{SERVER_PORT}")
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -212,20 +174,12 @@ print("[CLIENT] Connected")
 threading.Thread(target=receiver, args=(sock,), daemon=True).start()
 
 print("[TX] Subscribe to heartbeat notifications")
-payload = struct.pack("!H", NOTIFY_UDP_PORT)
-sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_SUBSCRIBE, payload))
-time.sleep(1)
+sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_SUBSCRIBE))
 
 try:
     while running:
-        sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_HEARTBEAT))
-        time.sleep(2)
-
-        sock.sendall(build_request(SERVICE_SENSOR, METHOD_GET_TEMPERATURE))
-        time.sleep(2)
-
-        sock.sendall(build_request(SERVICE_ENGINE, METHOD_GET_RPM))
         time.sleep(5)
+        sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_HEARTBEAT))
 
 except KeyboardInterrupt:
     print("\n[CLIENT] Unsubscribe and exit")

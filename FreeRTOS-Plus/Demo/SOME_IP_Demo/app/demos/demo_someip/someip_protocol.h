@@ -12,6 +12,11 @@
  *  - All canonical protocol definitions live in someip_types.h
  *  - This file only provides byte-order helpers.
  */
+/* =========================
+ * Subscription Methods
+ * ========================= */
+#define SOMEIP_METHOD_SUBSCRIBE     0x0100
+#define SOMEIP_METHOD_UNSUBSCRIBE   0x0101
 
 /* =========================================================
  * Byte order helpers for SOME/IP header

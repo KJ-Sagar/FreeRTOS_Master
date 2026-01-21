@@ -1,16 +1,11 @@
 #ifndef HEARTBEAT_SERVICE_H
 #define HEARTBEAT_SERVICE_H
 
-/*
- * Heartbeat service public interface.
- * This header must NOT contain implementation code.
- * Service logic lives in heartbeat_service.c only.
- */
+#include <stdint.h>
 
-/*
- * Initialize and register the Heartbeat SOME/IP service.
- * Must be called before someip_server_start().
- */
+#define SERVICE_HEARTBEAT   0x1234
+#define METHOD_HEARTBEAT    0x0001
+
 void HeartbeatService_Init(void);
 
-#endif /* HEARTBEAT_SERVICE_H */
+#endif
