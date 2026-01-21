@@ -10,11 +10,11 @@ BUILD_DIR := build
 # =========================================================
 # FreeRTOS Paths
 # =========================================================
-FREERTOS_DIR_REL := FreeRTOS
+FREERTOS_DIR_REL := ../../../FreeRTOS
 FREERTOS_DIR     := $(abspath $(FREERTOS_DIR_REL))
 KERNEL_DIR       := $(FREERTOS_DIR)/Source
 
-FREERTOS_PLUS_DIR_REL := FreeRTOS-Plus
+FREERTOS_PLUS_DIR_REL := ../../../FreeRTOS-Plus
 FREERTOS_PLUS_DIR     := $(abspath $(FREERTOS_PLUS_DIR_REL))
 FREERTOS_TCP          := $(FREERTOS_PLUS_DIR)/Source/FreeRTOS-Plus-TCP
 
