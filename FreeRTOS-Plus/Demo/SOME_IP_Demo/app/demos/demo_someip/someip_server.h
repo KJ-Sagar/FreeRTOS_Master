@@ -1,13 +1,23 @@
 #ifndef SOMEIP_SERVER_H
 #define SOMEIP_SERVER_H
 
-#include "FreeRTOS_Sockets.h"
-#include "someip_protocol.h"
+#include "FreeRTOS.h"
 
-#define SOMEIP_SERVER_PORT        30509
-#define SOMEIP_RX_BUFFER_SIZE     256
-#define SOMEIP_TX_BUFFER_SIZE     256
+/*
+ * SOME/IP server configuration
+ * Transport-specific details (sockets) must remain outside
+ * the SOME/IP runtime logic.
+ */
 
+#define SOMEIP_SERVER_PORT        30509U
+#define SOMEIP_RX_BUFFER_SIZE     256U
+#define SOMEIP_TX_BUFFER_SIZE     256U
+#define SOMEIP_NOTIFY_UDP_PORT    30510
+
+/*
+ * Start the SOME/IP server runtime.
+ * This creates the SOME/IP server task.
+ */
 void someip_server_start(void);
 
 #endif /* SOMEIP_SERVER_H */

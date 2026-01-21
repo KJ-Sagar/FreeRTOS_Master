@@ -4,7 +4,6 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <signal.h>
-#include "FreeRTOS_IP.h"
 
 #define SERVER_IP   "10.0.0.1"
 #define SERVER_PORT 5001
@@ -26,7 +25,7 @@ int main(void)
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = FreeRTOS_htons(SERVER_PORT);
+    addr.sin_port = htons(SERVER_PORT);
     inet_pton(AF_INET, SERVER_IP, &addr.sin_addr);
 
     printf("[LINUX] Connecting to FreeRTOS %s:%d...\n",

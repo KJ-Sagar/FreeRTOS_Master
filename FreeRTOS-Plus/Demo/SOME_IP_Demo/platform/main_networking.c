@@ -3,57 +3,40 @@
  * Copyright (C) 2020 Amazon.com, Inc.
  * All Rights Reserved.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
  */
 
-/*
- * This project is a cut down version of the project described on the following
- * link. Only the TCP echo clients / heartbeat demo are included in the build:
- * https://www.FreeRTOS.org/FreeRTOS-Plus/FreeRTOS_Plus_TCP/examples_FreeRTOS_simulator.html
- */
-
-/* Standard includes. */
+/* ================= Standard includes ================= */
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
 
-/* FreeRTOS includes. */
-#include <FreeRTOS.h>
+/* ================= FreeRTOS includes ================= */
+#include "FreeRTOS.h"
 #include "task.h"
 
-/* Demo application includes. */
+/* ================= FreeRTOS+TCP includes ================= */
 #include "FreeRTOS_IP.h"
 #include "FreeRTOS_Sockets.h"
+
+/* ================= Platform / CMSIS ================= */
 #include "CMSIS/CMSDK_CM3.h"
 #include "main_networking.h"
-#include "tcp_heartbeat_demo.h"
-#include "app_main.h"
 
-/*-----------------------------------------------------------*/
-/* Define a name that will be used for LLMNR and NBNS searches. */
+/* ================= Application includes ================= */
+#include "app_main.h"
+#include "app/demos/demo_someip/heartbeat_service.h"
+
+
+/* ================= Host name ================= */
 #define mainHOST_NAME        "RTOSDemo"
 #define mainDEVICE_NICK_NAME "qemu_demo"
 
-/*-----------------------------------------------------------*/
-/*
- * Just seeds the simple pseudo random number generator.
- */
+/* ================= Forward declarations ================= */
 static void prvSRand( UBaseType_t ulSeed );
-
-/*
- * Miscellaneous initialisation including seeding the random number generator.
- */
 static void prvMiscInitialisation( void );
 
-/*-----------------------------------------------------------*/
-/* Network address configuration */
+/* ================= Network configuration ================= */
 static const uint8_t ucIPAddress[ 4 ] =
 {
     configIP_ADDR0,
@@ -96,38 +79,25 @@ const uint8_t ucMACAddress[ 6 ] =
     configMAC_ADDR5
 };
 
-/*-----------------------------------------------------------*/
-/* Pseudo random number generator state */
+/* ================= RNG state ================= */
 static UBaseType_t ulNextRand;
 
 #if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 0 )
-
-/* There is only one physical network interface. */
 static NetworkInterface_t xInterfaces[ 1 ];
-
-/* A single endpoint is sufficient for this demo. */
-static NetworkEndPoint_t xEndPoints[ 1 ];
-
+static NetworkEndPoint_t  xEndPoints[ 1 ];
 #endif
-/*-----------------------------------------------------------*/
 
-/*
- * main_tcp_network_init()
- *
- * Initialises the TCP/IP stack and starts the scheduler.
- * Tasks that depend on the network are created from the
- * network-up event hook.
- */
+/* =========================================================
+ * main_tcp_network_init
+ * ========================================================= */
 void main_tcp_network_init( void )
 {
     BaseType_t xReturn;
 
-    /* Perform miscellaneous initialisation. */
     prvMiscInitialisation();
 
     FreeRTOS_debug_printf( ( "FreeRTOS_IPInit\r\n" ) );
 
-    /* Set Ethernet interrupt priority. */
     NVIC_SetPriority( ETHERNET_IRQn, configMAC_INTERRUPT_PRIORITY );
 
 #if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 0 )
@@ -166,16 +136,14 @@ void main_tcp_network_init( void )
     FreeRTOS_debug_printf( ( "vTaskStartScheduler\r\n" ) );
     vTaskStartScheduler();
 
-    /* Execution should never reach here. */
     for( ;; );
 }
-/*-----------------------------------------------------------*/
 
+/* =========================================================
+ * Network event hook
+ * ========================================================= */
 static BaseType_t xTasksAlreadyCreated = pdFALSE;
 
-/*
- * Called by FreeRTOS+TCP when the network connects or disconnects.
- */
 #if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 0 )
 void vApplicationIPNetworkEventHook_Multi( eIPCallbackEvent_t eNetworkEvent,
                                            NetworkEndPoint_t * pxEndPoint )
@@ -204,34 +172,32 @@ void vApplicationIPNetworkEventHook( eIPCallbackEvent_t eNetworkEvent )
 #endif
 
         FreeRTOS_printf( ( "\r\nNetwork configuration:\r\n" ) );
-
         FreeRTOS_inet_ntoa( ulIPAddress, cBuffer );
         FreeRTOS_printf( ( "IP Address: %s\r\n", cBuffer ) );
 
-        /* Start demo application tasks here */
+        /* ---- Application init (no sockets here) ---- */
         vApplicationStart();
         xTasksAlreadyCreated = pdTRUE;
-
     }
 }
-/*-----------------------------------------------------------*/
 
+/* =========================================================
+ * DNS hooks (unused)
+ * ========================================================= */
 #if ( ipconfigUSE_LLMNR != 0 ) || ( ipconfigUSE_NBNS != 0 )
-
 BaseType_t xApplicationDNSQueryHook_Multi(
     struct xNetworkEndPoint * pxEndPoint,
-    const char * pcName
-)
+    const char * pcName )
 {
-    /* This demo does not respond to DNS / LLMNR / NBNS name queries */
     ( void ) pxEndPoint;
     ( void ) pcName;
-
     return pdFAIL;
 }
-
 #endif
 
+/* =========================================================
+ * Random helpers
+ * ========================================================= */
 static UBaseType_t uxRand( void )
 {
     ulNextRand = ( 0x015a4e35UL * ulNextRand ) + 1UL;
@@ -249,11 +215,10 @@ static void prvMiscInitialisation( void )
     time( &xTimeNow );
     prvSRand( ( UBaseType_t ) xTimeNow );
 }
-/*-----------------------------------------------------------*/
 
-/*
- * Provide a random number for TCP initial sequence numbers.
- */
+/* =========================================================
+ * TCP stack callbacks
+ * ========================================================= */
 uint32_t ulApplicationGetNextSequenceNumber( uint32_t a,
                                              uint16_t b,
                                              uint32_t c,
@@ -263,9 +228,6 @@ uint32_t ulApplicationGetNextSequenceNumber( uint32_t a,
     return uxRand();
 }
 
-/*
- * Provide a random number to the TCP stack.
- */
 BaseType_t xApplicationGetRandomNumber( uint32_t * pulNumber )
 {
     *pulNumber = uxRand();

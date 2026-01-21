@@ -2,7 +2,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include "FreeRTOS_IP.h"
 
 #define SERVER_PORT 5001
 #define BUF_SIZE 512
@@ -21,7 +20,7 @@ int main(void)
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = FreeRTOS_htons(SERVER_PORT);
+    addr.sin_port = htons(SERVER_PORT);
     addr.sin_addr.s_addr = INADDR_ANY;
 
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {

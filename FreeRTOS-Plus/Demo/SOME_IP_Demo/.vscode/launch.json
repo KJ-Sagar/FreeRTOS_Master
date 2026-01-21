@@ -8,13 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": false,
-<<<<<<< HEAD
-      "cwd": "/home/kj/FreeRTOS_Sagar/FreeRTOS_Master/SOURCE_Files/FreeRTOS-Plus/Demo/SOME_IP_Demo",
-      "program": "/home/kj/FreeRTOS_Sagar/FreeRTOS_Master/SOURCE_Files/FreeRTOS-Plus/Demo/SOME_IP_Demo/build/Debug/outDebug",
-=======
       "cwd": "/home/kj/FreeRTOS_Sagar/FreeRTOS_Master/FreeRTOS-Plus/Demo/SOME_IP_Demo",
       "program": "/home/kj/FreeRTOS_Sagar/FreeRTOS_Master/FreeRTOS-Plus/Demo/SOME_IP_Demo/build/Debug/outDebug",
->>>>>>> dc8214e057cf1a1b68c462ab23dd38cb2562eceb
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [

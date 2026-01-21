@@ -1,11 +1,18 @@
 #!/bin/bash
 #
-# Run FreeRTOS TCP Demo on QEMU (MPS2)
-# QEMU hosts the TCP application (Echo / Heartbeat)
-# Linux provides TAP networking only
+# Run FreeRTOS SOME/IP Demo on QEMU (MPS2)
+#
+# QEMU hosts:
+#   - FreeRTOS
+#   - FreeRTOS+TCP
+#   - SOME/IP server (TCP)
+#
+# Linux host provides:
+#   - TAP networking only
 #
 # Usage:
 #   sudo ./TCP_Demo.sh
+#
 
 set -e
 
@@ -15,7 +22,7 @@ HOST_IP=10.0.0.1/24
 ELF=../build/freertos_tcp_mps2_demo.axf
 ################
 
-echo "=== FreeRTOS TCP Demo (QEMU + TAP) ==="
+echo "=== FreeRTOS SOME/IP Demo (QEMU + TAP) ==="
 
 ### Detect firewall ###
 FIREWALL=""
@@ -45,7 +52,7 @@ cleanup() {
 trap cleanup EXIT
 
 ### 1. Disable firewall ###
-echo "[1/4] Disabling firewall (temporarily)"
+echo "[1/3] Disabling firewall (temporarily)"
 
 if [[ "$FIREWALL" == "ufw" ]]; then
     ufw disable
@@ -56,7 +63,7 @@ else
 fi
 
 ### 2. TAP interface setup ###
-echo "[2/4] Setting up TAP interface: $TAP_IF"
+echo "[2/3] Setting up TAP interface: $TAP_IF"
 
 ip tuntap add dev $TAP_IF mode tap user $(whoami) 2>/dev/null || true
 ip addr flush dev $TAP_IF || true
@@ -65,23 +72,15 @@ ip link set $TAP_IF up
 
 echo "TAP interface $TAP_IF up with IP $HOST_IP"
 
-if grep -q "APP_DEMO_HEARTBEAT 1" ../app/app_config.h; then
-    echo "[3/4] Starting Linux heartbeat server"
-    nc -l -p 5001 &
-    NC_PID=$!
-else
-    echo "[3/4] Linux ready (QEMU hosts TCP server)"
-fi
+### 3. Run QEMU ###
+echo "[3/3] Launching QEMU (FreeRTOS SOME/IP server)"
 
-
-### 4. Run QEMU ###
-echo "[4/4] Launching QEMU (FreeRTOS TCP application)"
 sudo qemu-system-arm \
     -machine mps2-an385 \
     -cpu cortex-m3 \
     -kernel $ELF \
-    -netdev tap,id=mynet0,ifname=$TAP_IF,script=no,downscript=no \
-    -net nic,model=lan9118,netdev=mynet0 \
+    -netdev tap,id=net0,ifname=$TAP_IF,script=no,downscript=no \
+    -net nic,model=lan9118,netdev=net0 \
     -serial stdio \
     -nographic \
     -monitor null \

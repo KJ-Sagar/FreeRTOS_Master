@@ -54,22 +54,19 @@ SOURCE_FILES += \
     app/network_role.c \
     app/demo_selector.c
 
-# --- Application demos ---
-SOURCE_FILES += \
-    app/demos/demo_echo.c \
-    app/demos/demo_echo_server.c \
-    app/demos/demo_heartbeat.c
-
 # --- SOME/IP demo ---
 SOURCE_FILES += \
     app/demos/demo_someip/demo_someip.c \
     app/demos/demo_someip/someip_server.c \
-    app/demos/demo_someip/someip_protocol.c
+    app/demos/demo_someip/someip_protocol.c \
+    app/demos/demo_someip/someip_core/someip_core.c \
+    app/demos/demo_someip/sd_udp_server.c \
+    app/demos/demo_someip/someip_core/someip_validate.c
 
-# --- Existing FreeRTOS TCP demos reused ---
 SOURCE_FILES += \
-    TCPEchoClient_SingleTasks.c \
-    tcp_heartbeat_demo.c
+   app/demos/demo_someip/heartbeat_service.c \
+   app/demos/demo_someip/sensor_service.c \
+   app/demos/demo_someip/engine_service.c
 
 # =========================================================
 # FreeRTOS Kernel
