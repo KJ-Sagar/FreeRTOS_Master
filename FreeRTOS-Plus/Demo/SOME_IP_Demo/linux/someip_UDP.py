@@ -59,6 +59,7 @@ def recv_exact(sock, length):
         data += chunk
     return data
 
+
 def build_request(service_id, method_id, payload=b""):
     global session_id
 
@@ -80,8 +81,9 @@ def build_request(service_id, method_id, payload=b""):
     session_id = (session_id + 1) & 0xFFFF
     return hdr + payload
 
+
 # ==========================================================
-# Service Discovery – ACTIVE (Unicast FindService)
+# Service Discovery (Unicast)
 # ==========================================================
 def sd_find_services():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -106,8 +108,9 @@ def sd_find_services():
 
     sock.close()
 
+
 # ==========================================================
-# Receiver thread (TCP SOME/IP)
+# Receiver thread
 # ==========================================================
 def receiver(sock):
     global running
@@ -123,17 +126,13 @@ def receiver(sock):
             service_id,
             method_id,
             length,
-            _,
-            _,
-            _,
-            _,
+            _client,
+            _session,
+            _proto,
+            _iface,
             msg_type,
             ret
         ) = struct.unpack(HEADER_FMT, hdr_raw)
-
-        if length < 8:
-            print("[RX] Invalid SOME/IP length")
-            continue
 
         payload_len = length - 8
         payload = recv_exact(sock, payload_len) if payload_len > 0 else b""
@@ -143,6 +142,8 @@ def receiver(sock):
             if service_id == SERVICE_HEARTBEAT and len(payload) == 4:
                 alive = struct.unpack("!I", payload)[0]
                 print(f"[NOTIFY] Heartbeat alive = {alive}")
+            else:
+                print("[NOTIFY] Unknown notification")
             continue
 
         # ---------- ERROR ----------
@@ -151,12 +152,8 @@ def receiver(sock):
             continue
 
         # ---------- RESPONSE ----------
-        if service_id == SERVICE_HEARTBEAT:
-            if len(payload) == 4:
-                alive = struct.unpack("!I", payload)[0]
-                print(f"[RESP] Heartbeat = {alive}")
-            else:
-                print("[RESP] Heartbeat ACK")
+        print("[RESP] ACK from server")
+
 
 # ==========================================================
 # Main
@@ -179,12 +176,15 @@ threading.Thread(
     daemon=True
 ).start()
 
-print("[TX] Subscribe to heartbeat notifications")
-sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_SUBSCRIBE))
+# ---- SUBSCRIBE ----
+subscribe_msg = build_request(SERVICE_HEARTBEAT, METHOD_SUBSCRIBE)
+print("[TX] Subscribe to heartbeat")
+sock.sendall(subscribe_msg)
 
 try:
     while running:
         time.sleep(5)
+        # Optional polling request (can be commented out)
         sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_HEARTBEAT))
 
 except KeyboardInterrupt:

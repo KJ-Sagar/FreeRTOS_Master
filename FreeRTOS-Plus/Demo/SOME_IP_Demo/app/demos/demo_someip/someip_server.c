@@ -6,6 +6,10 @@
 #include "FreeRTOS_IP.h"
 #include "someip_core/someip_client_task.c"
 #include <string.h>
+#include "someip_core/someip_server_state.h"
+
+someip_client_ctx_t g_someip_clients[SOMEIP_MAX_CLIENTS];
+
 extern void someip_client_task(void *arg);
 
 /* =========================================================
