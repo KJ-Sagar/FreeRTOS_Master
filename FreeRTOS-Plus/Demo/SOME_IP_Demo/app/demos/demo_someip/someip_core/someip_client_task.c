@@ -1,148 +1,167 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
+
 #include "app/demos/demo_someip/someip_protocol.h"
 
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
-/* ========================================================= */
-#define SERVICE_HEARTBEAT   0x1234
-#define METHOD_HEARTBEAT    0x0001
-#define METHOD_SUBSCRIBE    0x0100
-#define METHOD_UNSUBSCRIBE  0x0101
+/* =========================================================
+ * Constants
+ * ========================================================= */
+#define RX_TIMEOUT_MS        100
+#define SOMEIP_HEADER_SIZE  (sizeof(someip_header_t))
 
-#define HEARTBEAT_PERIOD_MS 2000
-#define RX_TIMEOUT_MS       100
-
-/* ========================================================= */
-static BaseType_t recv_exact(Socket_t sock, uint8_t *buf, size_t len)
-{
-    size_t received = 0;
-
-    while (received < len)
-    {
-        int r = FreeRTOS_recv(sock, buf + received, len - received, 0);
-        if (r > 0)
-            received += (size_t)r;
-        else
-            return pdFAIL;
-    }
-    return pdPASS;
-}
-
-/* ========================================================= */
+/* =========================================================
+ * SOME/IP client RX task
+ * ========================================================= */
 void someip_client_task(void *arg)
 {
-    Socket_t sock = (Socket_t)arg;
+    Socket_t client_sock = (Socket_t)arg;
 
     uint8_t rx_buf[256];
-    uint8_t tx_buf[64];
-
-    BaseType_t heartbeat_subscribed = pdFALSE;
-    TickType_t last_hb_tick = 0;
+    uint8_t tx_buf[SOMEIP_HEADER_SIZE];
 
     TickType_t timeout = pdMS_TO_TICKS(RX_TIMEOUT_MS);
+
+    /* Set receive timeout */
     FreeRTOS_setsockopt(
-        sock,
+        client_sock,
         0,
         FREERTOS_SO_RCVTIMEO,
         &timeout,
         sizeof(timeout)
     );
 
-    printf("SOME/IP: Client handler started\r\n");
+    printf("SOME/IP: Client RX task started\r\n");
 
     for (;;)
     {
-        /* ---------- RX EVENT ---------- */
-        int r = FreeRTOS_recv(sock, rx_buf, sizeof(someip_header_t), 0);
+        int r = FreeRTOS_recv(
+            client_sock,
+            rx_buf,
+            SOMEIP_HEADER_SIZE,
+            0
+        );
 
-        if (r == sizeof(someip_header_t))
+        /* ---------------------------------------------
+         * No data → timeout (NORMAL, NOT DISCONNECT)
+         * --------------------------------------------- */
+        if (r == 0)
         {
-            someip_header_t hdr;
-            memcpy(&hdr, rx_buf, sizeof(hdr));
-            someip_ntoh_header(&hdr);
-
-            printf("SOME/IP RX: SID=0x%04x MID=0x%04x\r\n",
-                   hdr.service_id, hdr.method_id);
-
-            if (hdr.method_id == METHOD_SUBSCRIBE)
-            {
-                heartbeat_subscribed = pdTRUE;
-                printf("SOME/IP: Subscribed\r\n");
-            }
-            else if (hdr.method_id == METHOD_UNSUBSCRIBE)
-            {
-                heartbeat_subscribed = pdFALSE;
-                printf("SOME/IP: Unsubscribed\r\n");
-            }
-
-            uint32_t payload_len = hdr.length - 8;
-            if (payload_len > 0)
-            {
-                if (recv_exact(sock, rx_buf, payload_len) != pdPASS)
-                    break;
-            }
-
-            hdr.message_type = SOMEIP_MSG_RESPONSE;
-            hdr.return_code  = SOMEIP_RET_OK;
-            hdr.length       = 8;
-            hdr.client_id    = 0;
-
-            someip_hton_header(&hdr);
-            memcpy(tx_buf, &hdr, sizeof(hdr));
-            FreeRTOS_send(sock, tx_buf, sizeof(hdr), 0);
+            /* Idle connection */
+            continue;
         }
-        else if (r < 0)
+
+        /* ---------------------------------------------
+         * Real disconnect / socket error
+         * --------------------------------------------- */
+        if (r < 0)
         {
-            printf("SOME/IP: Client disconnected\r\n");
+            printf("SOME/IP: Client disconnected (socket error)\r\n");
             break;
         }
 
-        /* ---------- PERIODIC HEARTBEAT ---------- */
-        if (heartbeat_subscribed)
+        /* ---------------------------------------------
+         * Partial header (ignore safely)
+         * --------------------------------------------- */
+        if (r != SOMEIP_HEADER_SIZE)
         {
-            TickType_t now = xTaskGetTickCount();
-            if ((now - last_hb_tick) >= pdMS_TO_TICKS(HEARTBEAT_PERIOD_MS))
+            printf("SOME/IP: Partial header (%d bytes)\r\n", r);
+            continue;
+        }
+
+        /* ---------------------------------------------
+         * Decode SOME/IP header
+         * --------------------------------------------- */
+        someip_header_t hdr;
+        memcpy(&hdr, rx_buf, SOMEIP_HEADER_SIZE);
+        someip_ntoh_header(&hdr);
+
+        printf("SOME/IP RX:\r\n");
+        printf("  Service ID : 0x%04x\r\n", hdr.service_id);
+        printf("  Method ID  : 0x%04x\r\n", hdr.method_id);
+        printf("  Client ID  : 0x%04x\r\n", hdr.client_id);
+        printf("  Session ID : 0x%04x\r\n", hdr.session_id);
+        printf("  Length     : %lu\r\n", (unsigned long)hdr.length);
+        printf("  Msg Type   : 0x%02x\r\n", hdr.message_type);
+        printf("  Ret Code   : 0x%02x\r\n", hdr.return_code);
+
+        /* ---------------------------------------------
+         * Drain payload if present
+         * --------------------------------------------- */
+        uint32_t payload_len = 0;
+
+        if (hdr.length > SOMEIP_HEADER_PAYLOAD_OFFSET)
+        {
+            payload_len = hdr.length - SOMEIP_HEADER_PAYLOAD_OFFSET;
+        }
+
+        if (payload_len > 0)
+        {
+            if (payload_len > sizeof(rx_buf))
             {
-                last_hb_tick = now;
+                printf("SOME/IP: Payload too large\r\n");
+                break;
+            }
 
-                someip_header_t nhdr;
-                uint32_t alive = FreeRTOS_htonl(1);
+            int pr = FreeRTOS_recv(
+                client_sock,
+                rx_buf,
+                payload_len,
+                0
+            );
 
-                nhdr.service_id        = SERVICE_HEARTBEAT;
-                nhdr.method_id         = METHOD_HEARTBEAT;
-                nhdr.client_id         = 0;
-                nhdr.session_id        = 0;
-                nhdr.protocol_version  = SOMEIP_PROTOCOL_VERSION;
-                nhdr.interface_version = SOMEIP_INTERFACE_VERSION;
-                nhdr.message_type      = SOMEIP_MSG_NOTIFICATION;
-                nhdr.return_code       = SOMEIP_RET_OK;
-                nhdr.length            = 12;
-
-                someip_hton_header(&nhdr);
-                memcpy(tx_buf, &nhdr, sizeof(nhdr));
-                memcpy(tx_buf + sizeof(nhdr), &alive, sizeof(alive));
-
-                FreeRTOS_send(
-                    sock,
-                    tx_buf,
-                    sizeof(nhdr) + sizeof(alive),
-                    0
-                );
-
-                printf("SOME/IP: Heartbeat sent\r\n");
+            if (pr <= 0)
+            {
+                printf("SOME/IP: Client disconnected (payload)\r\n");
+                break;
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(20));
+        /* ---------------------------------------------
+         * Handle methods
+         * --------------------------------------------- */
+        if (hdr.method_id == SOMEIP_METHOD_SUBSCRIBE)
+        {
+            printf("SOME/IP: Client subscribed\r\n");
+            /* subscription flag must be stored in shared state */
+        }
+        else if (hdr.method_id == SOMEIP_METHOD_UNSUBSCRIBE)
+        {
+            printf("SOME/IP: Client unsubscribed\r\n");
+        }
+
+        /* ---------------------------------------------
+         * Send ACK
+         * --------------------------------------------- */
+        hdr.message_type = SOMEIP_MSG_RESPONSE;
+        hdr.return_code  = SOMEIP_RET_OK;
+        hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
+        hdr.client_id    = 0x0000;
+
+        someip_hton_header(&hdr);
+        memcpy(tx_buf, &hdr, SOMEIP_HEADER_SIZE);
+
+        FreeRTOS_send(
+            client_sock,
+            tx_buf,
+            SOMEIP_HEADER_SIZE,
+            0
+        );
+
+        printf("SOME/IP: ACK sent\r\n");
     }
 
-    FreeRTOS_closesocket(sock);
-    printf("SOME/IP: Client task stopped\r\n");
+    /* -------------------------------------------------
+     * RX task exits – DO NOT close socket here
+     * ------------------------------------------------- */
+    printf("SOME/IP: Client RX task exiting\r\n");
 
     for (;;)
+    {
         vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
