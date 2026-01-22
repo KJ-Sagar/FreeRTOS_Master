@@ -7,6 +7,11 @@
 #include <stdint.h>
 #include <string.h>
 
+/* Heartbeat service definitions */
+#define SERVICE_HEARTBEAT  0x1234
+#define METHOD_HEARTBEAT   0x0001
+#define SOMEIP_METHOD_UNSUBSCRIBE  0x0101
+
 /* =========================================================
  * Receive exactly N bytes from TCP
  * ========================================================= */
@@ -66,59 +71,77 @@ void someip_client_task(void *arg)
         /* =================================================
          * 1. Handle incoming request (if any)
          * ================================================= */
-        if (recv_exact(client_sock, rx_buf, sizeof(someip_header_t)) == pdPASS)
+        int r = FreeRTOS_recv(
+    client_sock,
+    rx_buf,
+    sizeof(someip_header_t),
+    0
+);
+
+if (r == sizeof(someip_header_t))
+{
+    someip_header_t hdr;
+
+    memcpy(&hdr, rx_buf, sizeof(hdr));
+    someip_ntoh_header(&hdr);
+
+    printf("SOME/IP HEADER:\r\n");
+    printf("  Service ID : 0x%04x\r\n", hdr.service_id);
+    printf("  Method ID  : 0x%04x\r\n", hdr.method_id);
+    printf("  Client ID  : 0x%04x\r\n", hdr.client_id);
+    printf("  Session ID : 0x%04x\r\n", hdr.session_id);
+    printf("  Length     : %lu\r\n", (unsigned long)hdr.length);
+    printf("  Msg Type   : 0x%02x\r\n", hdr.message_type);
+    printf("  Ret Code   : 0x%02x\r\n", hdr.return_code);
+
+    if (hdr.method_id == SOMEIP_METHOD_SUBSCRIBE)
+    {
+        heartbeat_subscribed = pdTRUE;
+        printf("SOME/IP: Client subscribed to heartbeat\r\n");
+    }
+    else if (hdr.method_id == SOMEIP_METHOD_UNSUBSCRIBE)
+    {
+        heartbeat_subscribed = pdFALSE;
+        printf("SOME/IP: Client unsubscribed from heartbeat\r\n");
+    }
+
+    uint32_t payload_len = hdr.length - 8;
+
+    /* Receive payload if present */
+    if (payload_len > 0)
+    {
+        if (recv_exact(client_sock, rx_buf, payload_len) == pdFAIL)
         {
-            someip_header_t hdr;
-
-            memcpy(&hdr, rx_buf, sizeof(hdr));
-            someip_ntoh_header(&hdr);
-
-            printf("SOME/IP HEADER:\r\n");
-            printf("  Service ID : 0x%04x\r\n", hdr.service_id);
-            printf("  Method ID  : 0x%04x\r\n", hdr.method_id);
-            printf("  Client ID  : 0x%04x\r\n", hdr.client_id);
-            printf("  Session ID : 0x%04x\r\n", hdr.session_id);
-            printf("  Length     : %u\r\n", hdr.length);
-            printf("  Msg Type   : 0x%02x\r\n", hdr.message_type);
-            printf("  Ret Code   : 0x%02x\r\n", hdr.return_code);
-
-            if (hdr.method_id == SOMEIP_METHOD_SUBSCRIBE)
-            {
-                heartbeat_subscribed = pdTRUE;
-                printf("SOME/IP: Client subscribed to heartbeat\r\n");
-            }
-
-            uint32_t payload_len = hdr.length - 8;
-
-            /* Receive payload if present */
-            if (payload_len > 0)
-            {
-                if (recv_exact(client_sock, rx_buf, payload_len) == pdFAIL)
-                {
-                    printf("SOME/IP: Payload receive failed\r\n");
-                    FreeRTOS_closesocket(client_sock);
-                    break;
-                }
-            }
-
-            /* Build ACK response */
-            hdr.message_type = SOMEIP_MSG_RESPONSE;
-            hdr.return_code  = SOMEIP_RET_OK;
-            hdr.length       = 8;
-            hdr.client_id    = 0x0000; /* server */
-
-            someip_hton_header(&hdr);
-            memcpy(tx_buf, &hdr, sizeof(hdr));
-
-            FreeRTOS_send(
-                client_sock,
-                tx_buf,
-                sizeof(someip_header_t),
-                0
-            );
-
-            printf("SOME/IP: Sent ACK response\r\n");
+            printf("SOME/IP: Payload receive failed\r\n");
+            FreeRTOS_closesocket(client_sock);
+            break;
         }
+    }
+
+    /* Build ACK response */
+    hdr.message_type = SOMEIP_MSG_RESPONSE;
+    hdr.return_code  = SOMEIP_RET_OK;
+    hdr.length       = 8;
+    hdr.client_id    = 0x0000;
+
+    someip_hton_header(&hdr);
+    memcpy(tx_buf, &hdr, sizeof(hdr));
+
+    FreeRTOS_send(
+        client_sock,
+        tx_buf,
+        sizeof(someip_header_t),
+        0
+    );
+
+    printf("SOME/IP: Sent ACK response\r\n");
+}
+else if (r < 0)
+{
+    printf("SOME/IP: Client disconnected\r\n");
+    FreeRTOS_closesocket(client_sock);
+    break;
+}
 
         /* =================================================
          * 2. Periodic heartbeat notification
