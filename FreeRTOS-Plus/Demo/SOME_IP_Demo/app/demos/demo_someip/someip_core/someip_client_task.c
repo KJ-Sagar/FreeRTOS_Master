@@ -2,6 +2,7 @@
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
 #include "app/demos/demo_someip/someip_protocol.h"
+#include "app/demos/demo_someip/heartbeat_service.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -78,7 +79,7 @@ void someip_client_task(void *arg)
             printf("  Method ID  : 0x%04x\r\n", hdr.method_id);
             printf("  Client ID  : 0x%04x\r\n", hdr.client_id);
             printf("  Session ID : 0x%04x\r\n", hdr.session_id);
-            printf("  Length     : %u\r\n", hdr.length);
+            printf("  Length     : %lu\r\n", hdr.length);
             printf("  Msg Type   : 0x%02x\r\n", hdr.message_type);
             printf("  Ret Code   : 0x%02x\r\n", hdr.return_code);
 
