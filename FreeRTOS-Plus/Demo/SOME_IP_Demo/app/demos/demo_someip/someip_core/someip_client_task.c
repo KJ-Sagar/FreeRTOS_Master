@@ -4,6 +4,7 @@
 
 #include "someip_server_state.h"
 #include "app/demos/demo_someip/someip_protocol.h"
+#include "app/demos/demo_someip/heartbeat_service.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -68,9 +69,57 @@ void someip_client_task(void *arg)
          * ------------------------------------------------- */
         if (ready > 0 && FreeRTOS_FD_ISSET(sock, rxSet))
         {
+<<<<<<< HEAD
+            someip_header_t hdr;
+
+            memcpy(&hdr, rx_buf, sizeof(hdr));
+            someip_ntoh_header(&hdr);
+
+            printf("SOME/IP HEADER:\r\n");
+            printf("  Service ID : 0x%04x\r\n", hdr.service_id);
+            printf("  Method ID  : 0x%04x\r\n", hdr.method_id);
+            printf("  Client ID  : 0x%04x\r\n", hdr.client_id);
+            printf("  Session ID : 0x%04x\r\n", hdr.session_id);
+            printf("  Length     : %lu\r\n", hdr.length);
+            printf("  Msg Type   : 0x%02x\r\n", hdr.message_type);
+            printf("  Ret Code   : 0x%02x\r\n", hdr.return_code);
+
+            if (hdr.method_id == SOMEIP_METHOD_SUBSCRIBE)
+            {
+                heartbeat_subscribed = pdTRUE;
+                printf("SOME/IP: Client subscribed to heartbeat\r\n");
+            }
+
+            uint32_t payload_len = hdr.length - 8;
+
+            /* Receive payload if present */
+            if (payload_len > 0)
+            {
+                if (recv_exact(client_sock, rx_buf, payload_len) == pdFAIL)
+                {
+                    printf("SOME/IP: Payload receive failed\r\n");
+                    FreeRTOS_closesocket(client_sock);
+                    break;
+                }
+            }
+
+            /* Build ACK response */
+            hdr.message_type = SOMEIP_MSG_RESPONSE;
+            hdr.return_code  = SOMEIP_RET_OK;
+            hdr.length       = 8;
+            hdr.client_id    = 0x0000; /* server */
+
+            someip_hton_header(&hdr);
+            memcpy(tx_buf, &hdr, sizeof(hdr));
+
+            FreeRTOS_send(
+                client_sock,
+                tx_buf,
+=======
             int r = FreeRTOS_recv(
                 sock,
                 rx_buf,
+>>>>>>> main
                 sizeof(someip_header_t),
                 0
             );
