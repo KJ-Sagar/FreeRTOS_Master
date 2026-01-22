@@ -10,6 +10,9 @@ typedef struct
     Socket_t socket;
     BaseType_t active;
     BaseType_t heartbeat_subscribed;
+    TickType_t last_activity_tick;
+    TaskHandle_t rx_task;
+    TaskHandle_t notify_task;
 } someip_client_ctx_t;
 
 /* Global client table */
