@@ -73,7 +73,6 @@ def recv_exact(sock, length):
         data += chunk
     return data
 
-
 def build_request(service_id, method_id, payload=b""):
     global session_id
 
@@ -102,9 +101,8 @@ def build_request(service_id, method_id, payload=b""):
     session_id = (session_id + 1) & 0xFFFF
     return hdr + payload
 
-
 # ==========================================================
-# Service Discovery (Unicast)
+# Service Discovery – ACTIVE (Unicast FindService)
 # ==========================================================
 def sd_find_services():
     log("SD: Creating UDP socket")
@@ -130,9 +128,8 @@ def sd_find_services():
     sock.close()
     log("SD: Socket closed")
 
-
 # ==========================================================
-# Receiver thread
+# Receiver thread (TCP SOME/IP)
 # ==========================================================
 def receiver(sock):
     global running

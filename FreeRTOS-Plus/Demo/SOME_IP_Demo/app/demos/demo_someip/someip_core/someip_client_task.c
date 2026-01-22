@@ -1,10 +1,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
-
-#include "someip_server_state.h"
 #include "app/demos/demo_someip/someip_protocol.h"
-#include "app/demos/demo_someip/heartbeat_service.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -131,9 +128,8 @@ void someip_client_task(void *arg)
 
                 FreeRTOS_send(
                     sock,
-                    sock,
                     tx_buf,
-                    sizeof(someip_header_t),
+                    sizeof(nhdr) + sizeof(alive),
                     0
                 );
 
