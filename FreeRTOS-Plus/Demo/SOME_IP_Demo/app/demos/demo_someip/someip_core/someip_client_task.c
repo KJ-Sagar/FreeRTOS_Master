@@ -3,6 +3,7 @@
 #include "FreeRTOS_Sockets.h"
 
 #include "app/demos/demo_someip/someip_protocol.h"
+#include "app/demos/demo_someip/someip_core/someip_server_state.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -15,11 +16,34 @@
 #define SOMEIP_HEADER_SIZE  (sizeof(someip_header_t))
 
 /* =========================================================
+ * Helper: Find client context by socket
+ * ========================================================= */
+static someip_client_ctx_t* find_client_by_socket(Socket_t sock)
+{
+    for (int i = 0; i < SOMEIP_MAX_CLIENTS; i++)
+    {
+        if (g_someip_clients[i].active && g_someip_clients[i].socket == sock)
+        {
+            return &g_someip_clients[i];
+        }
+    }
+    return NULL;
+}
+
+/* =========================================================
  * SOME/IP client RX task
  * ========================================================= */
 void someip_client_task(void *arg)
 {
     Socket_t client_sock = (Socket_t)arg;
+    someip_client_ctx_t *ctx = find_client_by_socket(client_sock);
+
+    if (ctx == NULL)
+    {
+        printf("SOME/IP: ERROR - No client context found!\r\n");
+        /* Task exits naturally - no vTaskDelete needed if not enabled */
+        for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 
     uint8_t rx_buf[256];
     uint8_t tx_buf[SOMEIP_HEADER_SIZE];
@@ -37,6 +61,10 @@ void someip_client_task(void *arg)
 
     printf("SOME/IP: Client RX task started\r\n");
 
+    /* Update state: socket connected */
+    ctx->client_state = CLIENT_CONNECTED;
+    printf("SOME/IP: State -> CLIENT_CONNECTED\r\n");
+
     for (;;)
     {
         int r = FreeRTOS_recv(
@@ -51,7 +79,6 @@ void someip_client_task(void *arg)
          * --------------------------------------------- */
         if (r == 0)
         {
-            /* Idle connection */
             continue;
         }
 
@@ -89,6 +116,13 @@ void someip_client_task(void *arg)
         printf("  Msg Type   : 0x%02x\r\n", hdr.message_type);
         printf("  Ret Code   : 0x%02x\r\n", hdr.return_code);
 
+        /* Update state: valid message received */
+        if (ctx->client_state == CLIENT_CONNECTED)
+        {
+            ctx->client_state = CLIENT_ACTIVE;
+            printf("SOME/IP: State -> CLIENT_ACTIVE\r\n");
+        }
+
         /* ---------------------------------------------
          * Drain payload if present
          * --------------------------------------------- */
@@ -122,16 +156,19 @@ void someip_client_task(void *arg)
         }
 
         /* ---------------------------------------------
-         * Handle methods
+         * Handle subscription methods
          * --------------------------------------------- */
         if (hdr.method_id == SOMEIP_METHOD_SUBSCRIBE)
         {
-            printf("SOME/IP: Client subscribed\r\n");
-            /* subscription flag must be stored in shared state */
+            printf("SOME/IP: Client SUBSCRIBE received\r\n");
+            ctx->event_state = EVENT_SUBSCRIBED;
+            printf("SOME/IP: Event State -> EVENT_SUBSCRIBED\r\n");
         }
         else if (hdr.method_id == SOMEIP_METHOD_UNSUBSCRIBE)
         {
-            printf("SOME/IP: Client unsubscribed\r\n");
+            printf("SOME/IP: Client UNSUBSCRIBE received\r\n");
+            ctx->event_state = EVENT_NOT_SUBSCRIBED;
+            printf("SOME/IP: Event State -> EVENT_NOT_SUBSCRIBED\r\n");
         }
 
         /* ---------------------------------------------
@@ -156,12 +193,21 @@ void someip_client_task(void *arg)
     }
 
     /* -------------------------------------------------
-     * RX task exits – DO NOT close socket here
+     * Cleanup on disconnect
      * ------------------------------------------------- */
     printf("SOME/IP: Client RX task exiting\r\n");
 
-    for (;;)
-    {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+    ctx->client_state = CLIENT_DISCONNECTED;
+    ctx->event_state = EVENT_NOT_SUBSCRIBED;
+    ctx->active = pdFALSE;
+
+    FreeRTOS_closesocket(client_sock);
+
+    /* Only use vTaskDelete if enabled in FreeRTOSConfig.h */
+#if (INCLUDE_vTaskDelete == 1)
+    vTaskDelete(NULL);
+#else
+    /* If vTaskDelete not available, task suspends itself indefinitely */
+    for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
+#endif
 }
