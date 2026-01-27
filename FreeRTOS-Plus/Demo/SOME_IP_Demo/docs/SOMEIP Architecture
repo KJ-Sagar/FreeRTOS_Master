@@ -1,0 +1,436 @@
+# SOME/IP Architecture - Visual Diagrams
+
+This document provides visual representations of the system architecture, data flows, and state machines.
+
+---
+
+## System Overview Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          HOST MACHINE (Linux)                            │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                     Python Test Client                             │ │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐         │ │
+│  │  │Subscribe │  │ Request  │  │ Receive  │  │Unsubscribe│        │ │
+│  │  │  Logic   │  │  Logic   │  │   RX     │  │  Logic    │        │ │
+│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬──────┘        │ │
+│  └───────┼─────────────┼─────────────┼─────────────┼────────────────┘ │
+│          │             │             │             │                    │
+│  ┌───────▼─────────────▼─────────────▼─────────────▼────────────────┐ │
+│  │              TCP Socket (10.0.0.1:random)                         │ │
+│  └───────────────────────────┬───────────────────────────────────────┘ │
+└────────────────────────────┬─┴─────────────────────────────────────────┘
+                             │ TAP Interface (tap0)
+                             │ IP: 10.0.0.1/24
+┌────────────────────────────┴───────────────────────────────────────────┐
+│                     QEMU ARM MPS2 Emulator                              │
+│  ┌─────────────────────────┬───────────────────────────────────────┐  │
+│  │  FreeRTOS+TCP Stack     │                                       │  │
+│  │  (10.0.0.2:30509)       │                                       │  │
+│  └─────────────┬────────────┘                                       │  │
+│                │                                                     │  │
+│  ┌─────────────▼──────────────────────────────────────────────────┐  │
+│  │              SOME/IP Server Core                                │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │  │
+│  │  │ TCP Accept   │  │ Client Table │  │ Notification │         │  │
+│  │  │    Loop      │  │   Manager    │  │  Broadcast   │         │  │
+│  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘         │  │
+│  │         │                  │                  │                  │  │
+│  │  ┌──────▼──────┐  ┌───────▼────────┐  ┌──────▼───────┐         │  │
+│  │  │Client RX[0] │  │  Event Group   │  │ TTL Manager  │         │  │
+│  │  │Client RX[1] │  │    Registry    │  │   (1 sec)    │         │  │
+│  │  │Client RX[2] │  │                │  │              │         │  │
+│  │  │Client RX[3] │  │                │  │              │         │  │
+│  │  └──────┬──────┘  └───────┬────────┘  └──────────────┘         │  │
+│  │         │                  │                                     │  │
+│  └─────────┼──────────────────┼─────────────────────────────────────┘  │
+│            │                  │                                         │
+│  ┌─────────▼──────────────────▼─────────────────────────────────────┐  │
+│  │                    Service Layer                                  │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐         │  │
+│  │  │Heartbeat │  │  Sensor  │  │  Engine  │  │  Custom  │         │  │
+│  │  │ (0x1234) │  │ (0x1001) │  │ (0x1002) │  │ Services │         │  │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘         │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Task Architecture Diagram
+
+```
+                    FreeRTOS Scheduler (20 MHz Cortex-M3)
+                                    │
+        ┌───────────────────────────┴───────────────────────────┐
+        │                                                        │
+┌───────▼──────────┐                                   ┌────────▼────────┐
+│ someip_server    │                                   │  TCP/IP Stack   │
+│      Task        │                                   │      Task       │
+│ Priority: +2     │                                   │  Priority: +3   │
+│ Stack: 4 KB      │                                   │  Stack: 8 KB    │
+└───────┬──────────┘                                   └─────────────────┘
+        │ Accept connections
+        │ Allocate client slots
+        │
+        ├─────────────┬─────────────┬─────────────┬──────────────┐
+        │             │             │             │              │
+┌───────▼──────┐ ┌────▼──────┐ ┌───▼───────┐ ┌──▼────────┐ ┌──▼────────┐
+│someip_client │ │someip_    │ │someip_    │ │someip_    │ │someip_ttl │
+│   task [0]   │ │client[1]  │ │client[2]  │ │client[3]  │ │  manager  │
+│              │ │           │ │           │ │           │ │           │
+│ Priority: +1 │ │Priority:+1│ │Priority:+1│ │Priority:+1│ │Priority:+1│
+│ Stack: 4 KB  │ │Stack: 4KB │ │Stack: 4KB │ │Stack: 4KB │ │Stack: 2KB │
+│              │ │           │ │           │ │           │ │           │
+│ • Recv msgs  │ │• Recv msgs│ │• Recv msgs│ │• Recv msgs│ │• Check TTL│
+│ • Subscribe  │ │• Subscribe│ │• Subscribe│ │• Subscribe│ │• Expire   │
+│ • Parse      │ │• Parse    │ │• Parse    │ │• Parse    │ │  subs     │
+└──────────────┘ └───────────┘ └───────────┘ └───────────┘ └───────────┘
+
+                            ┌────────────────┐
+                            │ someip_notify  │
+                            │      task      │
+                            │ Priority: +1   │
+                            │ Stack: 2 KB    │
+                            │                │
+                            │ • Timer (2s)   │
+                            │ • Broadcast    │
+                            │   to all subs  │
+                            └────────────────┘
+```
+
+---
+
+## Data Flow: Subscription Lifecycle
+
+```
+Client                  Network              Server
+  │                       │                    │
+  │────── SUBSCRIBE ──────▶│                   │
+  │   (EventGroup=0x0001)  │                   │
+  │                       │────────────────────▶│
+  │                       │                    │ someip_client_task receives
+  │                       │                    │ Parses header, payload
+  │                       │                    │
+  │                       │                    │ xSemaphoreTake(mutex)
+  │                       │                    │ Update subscription table:
+  │                       │                    │   subscriptions[0].eventgroup_id = 0x0001
+  │                       │                    │   subscriptions[0].state = SUBSCRIBED
+  │                       │                    │   subscriptions[0].expiry_tick = now + TTL
+  │                       │                    │ xSemaphoreGive(mutex)
+  │                       │                    │
+  │                       │◀────────────────────│ Build ACK
+  │◀────── ACK ───────────│                    │
+  │                       │                    │
+  │                       │                    │
+  ├─────────── Wait for notifications ──────────┤
+  │                       │                    │
+  │                       │                    │ someip_notification_task
+  │                       │                    │ Timer expires (2 seconds)
+  │                       │                    │ Loop through all clients:
+  │                       │                    │   if (client.active)
+  │                       │                    │     if (is_subscribed(client, 0x0001))
+  │                       │                    │       send_notification(client)
+  │                       │                    │
+  │                       │◀────────────────────│ NOTIFICATION
+  │◀──── NOTIFICATION ────│                    │   (Heartbeat counter)
+  │                       │                    │
+  │                       │                    │
+  │                       │                    │ [Repeat every 2 seconds]
+  │◀──── NOTIFICATION ────│◀────────────────────│
+  │◀──── NOTIFICATION ────│◀────────────────────│
+  │                       │                    │
+  │                       │                    │
+  │──── UNSUBSCRIBE ──────▶│                   │
+  │                       │────────────────────▶│
+  │                       │                    │ xSemaphoreTake(mutex)
+  │                       │                    │ Remove subscription:
+  │                       │                    │   subscriptions[0].state = NOT_SUBSCRIBED
+  │                       │                    │ xSemaphoreGive(mutex)
+  │                       │                    │
+  │                       │◀────────────────────│ Build ACK
+  │◀────── ACK ───────────│                    │
+  │                       │                    │
+  │                       │                    │
+  │                       │                    │ someip_notification_task
+  │                       │                    │ Timer expires
+  │                       │                    │ Loop through clients:
+  │                       │                    │   if (is_subscribed(client, 0x0001))
+  │                       │                    │     → FALSE, skip this client
+  │                       │                    │
+  │    [No more notifications]                │
+  │                       │                    │
+```
+
+---
+
+## State Machine: Client Connection Lifecycle
+
+```
+                     ┌─────────────────┐
+                     │ CLIENT_         │
+                     │ DISCONNECTED    │
+                     └────────┬────────┘
+                              │
+                              │ FreeRTOS_accept()
+                              │ someip_client_allocate()
+                              ▼
+                     ┌─────────────────┐
+                     │ CLIENT_         │
+                     │ CONNECTED       │
+                     └────────┬────────┘
+                              │
+                              │ First valid SOME/IP message received
+                              │ (header parsed successfully)
+                              ▼
+                     ┌─────────────────┐
+            ┌────────│ CLIENT_         │────────┐
+            │        │ ACTIVE          │        │
+            │        └─────────────────┘        │
+            │                 │                 │
+            │ SUBSCRIBE       │       UNSUBSCRIBE
+            │                 │                 │
+            ▼                 │                 ▼
+┌──────────────────┐          │      ┌──────────────────┐
+│ EVENT_           │          │      │ EVENT_           │
+│ SUBSCRIBED       │◀─────────┘      │ NOT_SUBSCRIBED   │
+│                  │                 │                  │
+│ • Notifications  │                 │ • No notifs      │
+│   enabled        │                 │                  │
+│ • TTL timer      │                 │                  │
+│   running        │                 │                  │
+└──────────────────┘                 └──────────────────┘
+        │                                      ▲
+        │ TTL expires                          │
+        └──────────────────────────────────────┘
+
+        Socket close / error
+                │
+                ▼
+        ┌─────────────────┐
+        │ CLEANUP         │
+        │ • Free slot     │
+        │ • Clear subs    │
+        │ • Task exit     │
+        └─────────────────┘
+```
+
+---
+
+## Memory Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Flash Memory (ROM)                     │
+│                        30 KB                             │
+├─────────────────────────────────────────────────────────┤
+│ Interrupt Vectors            │ 1 KB                     │
+├──────────────────────────────┼──────────────────────────┤
+│ FreeRTOS Kernel              │ 12 KB                    │
+├──────────────────────────────┼──────────────────────────┤
+│ FreeRTOS+TCP Stack           │ 8 KB                     │
+├──────────────────────────────┼──────────────────────────┤
+│ SOME/IP Protocol Layer       │ 5 KB                     │
+├──────────────────────────────┼──────────────────────────┤
+│ Service Implementations      │ 2 KB                     │
+├──────────────────────────────┼──────────────────────────┤
+│ Application Code             │ 2 KB                     │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│                    RAM (256 KB total)                    │
+├─────────────────────────────────────────────────────────┤
+│ FreeRTOS Heap                │ 279 KB                   │
+├──────────────────────────────┼──────────────────────────┤
+│ Task Stacks:                 │                          │
+│  • Server task               │ 4 KB                     │
+│  • Client RX tasks (4×4KB)   │ 16 KB                    │
+│  • Notification task         │ 2 KB                     │
+│  • TTL manager              │ 2 KB                     │
+│  • TCP/IP tasks             │ 16 KB                    │
+├──────────────────────────────┼──────────────────────────┤
+│ Global BSS Data:             │                          │
+│  • Client table (4×200B)     │ 800 B                    │
+│  • Event group registry      │ 1600 B                   │
+│  • Service table             │ 256 B                    │
+│  • Subscription tables       │ 640 B                    │
+├──────────────────────────────┼──────────────────────────┤
+│ TCP/IP Buffers               │ 32 KB                    │
+├──────────────────────────────┼──────────────────────────┤
+│ Mutexes (4 × semaphore)      │ 320 B                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## SOME/IP Message Format
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    SOME/IP Header (16 bytes)             │
+├────────┬────────┬─────────┬─────────┬──────────┬────────┤
+│Service │Method  │ Length  │Client ID│Session ID│Protocol│
+│  ID    │  ID    │         │         │          │Version │
+│ 2 bytes│2 bytes │ 4 bytes │ 2 bytes │ 2 bytes  │1 byte  │
+├────────┴────────┴─────────┴─────────┴──────────┴────────┤
+│Interface│Message │Return  │                              │
+│Version  │Type    │Code    │                              │
+│1 byte   │1 byte  │1 byte  │                              │
+└─────────┴────────┴────────┴──────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│                    Payload (optional)                     │
+│                                                           │
+│  For SUBSCRIBE:                                           │
+│  ┌──────────────┬──────────────────────────────────────┐ │
+│  │EventGroup ID │  TTL (seconds)                       │ │
+│  │  2 bytes     │  4 bytes                             │ │
+│  └──────────────┴──────────────────────────────────────┘ │
+│                                                           │
+│  For NOTIFICATION:                                        │
+│  ┌──────────────────────────────────────────────────────┐│
+│  │  Event Data (service-specific)                       ││
+│  │  Example: Heartbeat counter (4 bytes)                ││
+│  └──────────────────────────────────────────────────────┘│
+│                                                           │
+│  For REQUEST/RESPONSE:                                    │
+│  ┌──────────────────────────────────────────────────────┐│
+│  │  Method parameters / return values                   ││
+│  └──────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────┘
+
+Example: Subscribe Message (Hex)
+┌─────┬─────┬─────────┬─────┬─────┬──┬──┬──┬──┬─────┬─────────┐
+│12 34│01 00│00 00 00│00 01│00 01│01│01│00│00│00 01│00 00 00│
+│     │     │   0E   │     │     │  │  │  │  │     │   0A   │
+└─────┴─────┴─────────┴─────┴─────┴──┴──┴──┴──┴─────┴─────────┘
+  │     │       │       │     │    │  │  │  │    │       │
+  │     │       │       │     │    │  │  │  │    │       └─ TTL: 10 seconds
+  │     │       │       │     │    │  │  │  │    └───────── EventGroup: 0x0001
+  │     │       │       │     │    │  │  │  └────────────── Return: OK
+  │     │       │       │     │    │  │  └───────────────── Msg Type: REQUEST
+  │     │       │       │     │    │  └──────────────────── Interface: 0x01
+  │     │       │       │     │    └─────────────────────── Protocol: 0x01
+  │     │       │       │     └──────────────────────────── Session: 1
+  │     │       │       └────────────────────────────────── Client: 1
+  │     │       └────────────────────────────────────────── Length: 14 (8+6)
+  │     └────────────────────────────────────────────────── Method: SUBSCRIBE
+  └──────────────────────────────────────────────────────── Service: Heartbeat
+```
+
+---
+
+## Thread Synchronization Model
+
+```
+                        Shared Resource: Client Context
+                    ┌────────────────────────────────────┐
+                    │  someip_client_ctx_t               │
+                    │  ┌─────────────────────────────┐   │
+                    │  │ Mutex (SemaphoreHandle_t)   │   │
+                    │  └─────────────────────────────┘   │
+                    │  ┌─────────────────────────────┐   │
+                    │  │ Subscription Table          │   │
+                    │  │  • eventgroup_id            │   │
+                    │  │  • state                    │   │
+                    │  │  • expiry_tick              │   │
+                    │  └─────────────────────────────┘   │
+                    └────────────────────────────────────┘
+                                  │
+            ┌─────────────────────┼─────────────────────┐
+            │                     │                     │
+    ┌───────▼────────┐   ┌────────▼────────┐  ┌────────▼────────┐
+    │ Client RX Task │   │ Notification    │  │  TTL Manager    │
+    │                │   │      Task       │  │      Task       │
+    │ WRITE access:  │   │ READ access:    │  │ WRITE access:   │
+    │ • Subscribe    │   │ • Check sub     │  │ • Expire subs   │
+    │ • Unsubscribe  │   │   state         │  │                 │
+    └────────────────┘   └─────────────────┘  └─────────────────┘
+            │                     │                     │
+            │ Lock Pattern        │ Lock Pattern        │ Lock Pattern
+            │                     │                     │
+            ▼                     ▼                     ▼
+    xSemaphoreTake(             someip_client_         xSemaphoreTake(
+      ctx->mutex,                 is_subscribed()        ctx->mutex,
+      100ms)                       internally locks       100ms)
+                                                  
+    // Modify subscription                       // Mark as EXPIRED
+    subscriptions[i].state =                     subscriptions[i].state =
+      EVENTGROUP_SUBSCRIBED                       EVENTGROUP_EXPIRED
+    
+    xSemaphoreGive(                              xSemaphoreGive(
+      ctx->mutex)                                  ctx->mutex)
+
+Benefits:
+• Prevents race conditions during subscription updates
+• 100ms timeout prevents deadlock
+• Read operations (is_subscribed) also lock for consistency
+• Each client has independent mutex (no contention between clients)
+```
+
+---
+
+## Performance Timeline
+
+```
+Time →
+0ms     50ms    100ms   150ms   200ms   250ms   300ms   350ms   400ms
+│       │       │       │       │       │       │       │       │
+├───────┼───────┼───────┼───────┼───────┼───────┼───────┼───────┤
+│                                                                 │
+│ Client                                                          │
+│ Connect ────────────────────────────────────────────────────── │
+│                                                                 │
+├───────┼───────┼───────┼───────┼───────┼───────┼───────┼───────┤
+│       │                                                         │
+│       │ Subscribe                                               │
+│       └──────▶ (1.2ms latency)                                 │
+│                │                                                │
+│                │ ACK                                            │
+│                └──────▶                                         │
+│                                                                 │
+├───────┼───────┼───────┼───────┼───────┼───────┼───────┼───────┤
+│                                                                 │
+│                        Notification Timer                       │
+│                        (2000ms period)                          │
+│                               │                                 │
+│                               ▼                                 │
+│                        Notification #1                          │
+│                        ◀──────                                  │
+│                                                                 │
+│                                               ▼                 │
+│                                        Notification #2          │
+│                                        ◀──────                  │
+│                                                                 │
+├───────┼───────┼───────┼───────┼───────┼───────┼───────┼───────┤
+│                                                       │         │
+│ Request                                               │         │
+│ ──────▶ (3.2ms avg latency)                          │         │
+│        │                                              │         │
+│        │ Response                                     │         │
+│        └──────▶                                       │         │
+│                                                       │         │
+│                                               Unsubscribe       │
+│                                               ──────▶ │         │
+│                                                       │         │
+│                                                       │ ACK     │
+│                                                       └──────▶  │
+│                                                                 │
+│ [No more notifications]                                         │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+Performance Characteristics:
+• Connection setup: <50ms
+• Subscribe latency: 1-5ms
+• First notification: 0-2000ms (depends on timer phase)
+• Notification period: 2000ms ±10ms
+• Request/response: 1-5ms
+• Unsubscribe effect: <1ms (immediate)
+```
+
+---
+
+*Architecture Diagrams Version 1.0*
