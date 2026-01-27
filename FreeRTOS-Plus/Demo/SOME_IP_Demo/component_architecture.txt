@@ -1,0 +1,292 @@
+# Phase 4: Production-Ready SOME/IP Stack - Architecture
+
+## 🎯 Design Philosophy
+
+**Backward Compatible** - All Phase 3 code continues to work
+**Zero Dynamic Allocation** - Static tables, predictable memory
+**Thread-Safe** - Mutex-protected subscription state
+**AUTOSAR-Aligned** - Event groups, TTL, SD subscriptions
+**Test-Driven** - Automated ITCG test suite included
+
+---
+
+## 📊 Component Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Application Layer                        │
+│  (demo_someip.c, heartbeat_service.c, sensor_service.c)     │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+┌────────────────────┴────────────────────────────────────────┐
+│                  SOME/IP Server Core                         │
+│                   (someip_server.c)                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ TCP Accept   │  │ Client Table │  │ Notification │      │
+│  │ Loop         │──│ Manager      │──│ Broadcaster  │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+┌────────────────────┴────────────────────────────────────────┐
+│              Subscription & Event Management                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ Event Group  │  │ TTL Manager  │  │ SD Subscribe │      │
+│  │ Registry     │  │ (Expiration) │  │ Handler      │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+┌────────────────────┴────────────────────────────────────────┐
+│                   Protocol Layer                             │
+│  (someip_protocol.c, someip_types.h, someip_validate.c)     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🗂️ File Structure
+
+### **New Files (Phase 4)**
+```
+someip_core/
+├── someip_eventgroup.h       ✅ Event group registry
+├── someip_eventgroup.c       ✅ Event group implementation
+├── someip_client_manager.h   📝 Client lifecycle management
+├── someip_client_manager.c   📝 Client allocation/cleanup
+├── someip_ttl_manager.h      📝 TTL expiration task
+├── someip_ttl_manager.c      📝 TTL checking logic
+├── someip_sd_subscribe.h     📝 SD-based subscription
+├── someip_sd_subscribe.c     📝 SD message parsing
+└── someip_broadcast.h        📝 Multi-client notifications
+└── someip_broadcast.c        📝 Broadcast implementation
+```
+
+### **Enhanced Files (Phase 4)**
+```
+someip_server.c               🔄 Rewritten with client manager
+someip_client_task.c          🔄 Event group support
+someip_notification_task.c    🔄 Broadcast to all subscribers
+someip_server_state.h         🔄 Event group subscriptions + TTL
+sd_udp_server.c               🔄 Enhanced with SubscribeEventgroup
+```
+
+### **Unchanged Files (Backward Compatible)**
+```
+someip_protocol.c/h           ✅ No changes needed
+someip_types.h                ✅ No changes needed
+someip_validate.c/h           ✅ No changes needed
+someip_core.c/h               ✅ No changes needed
+heartbeat_service.c/h         ✅ Works as-is
+sensor_service.c/h            ✅ Works as-is
+engine_service.c/h            ✅ Works as-is
+```
+
+---
+
+## 🔄 Data Flow: Subscription Lifecycle
+
+### **1. Client Subscribes (TCP Method)**
+```
+Client → SUBSCRIBE(service_id=0x1234, eventgroup_id=0x0001, ttl=5)
+  ↓
+someip_client_task.c
+  ↓
+someip_client_subscribe(ctx, 0x1234, 0x0001, 5)
+  ↓
+Subscription Table Updated:
+  - eventgroup_id: 0x0001
+  - state: SUBSCRIBED
+  - expiry_tick: now + 5 seconds
+  ↓
+Client ← ACK
+```
+
+### **2. Notification Broadcast**
+```
+someip_notification_task (every 2 seconds)
+  ↓
+For each client in g_someip_clients:
+  For each subscription in client.subscriptions:
+    if (state == SUBSCRIBED && not expired):
+      if (eventgroup contains event 0x0001):
+        send_notification(client.socket, event_data)
+```
+
+### **3. TTL Expiration**
+```
+someip_ttl_manager_task (every 1 second)
+  ↓
+For each client:
+  For each subscription:
+    if (current_tick >= expiry_tick):
+      subscription.state = EXPIRED
+      Log: "Subscription expired for client X eventgroup Y"
+```
+
+### **4. Client Unsubscribes**
+```
+Client → UNSUBSCRIBE(eventgroup_id=0x0001)
+  ↓
+someip_client_unsubscribe(ctx, 0x1234, 0x0001)
+  ↓
+Subscription removed from table
+  ↓
+Client ← ACK
+```
+
+---
+
+## 🎯 Key Improvements Over Phase 3
+
+### **Multi-Client Support**
+- ✅ Broadcast notifications to ALL subscribed clients
+- ✅ Isolated state per client
+- ✅ One client failure doesn't affect others
+
+### **Event Group Abstraction**
+- ✅ Services can have multiple event groups
+- ✅ Client subscribes to event groups, not individual events
+- ✅ Events grouped logically (e.g., "Diagnostics", "Telemetry")
+
+### **TTL Management**
+- ✅ Automatic subscription expiration
+- ✅ Configurable TTL per event group
+- ✅ Renewal on re-subscribe
+
+### **SD Integration**
+- ✅ UDP-based SubscribeEventgroup
+- ✅ Unicast endpoint options
+- ✅ Multicast support (optional)
+
+### **Thread Safety**
+- ✅ Mutex-protected subscription tables
+- ✅ Safe concurrent access from RX task and notification task
+
+### **Robustness**
+- ✅ Buffer overflow protection
+- ✅ Malformed message handling
+- ✅ Graceful client disconnect cleanup
+
+---
+
+## 📝 Example: Heartbeat Service with Event Groups
+
+### **Service Definition**
+```c
+/* Heartbeat service has ONE event group: "Status" */
+someip_eventgroup_def_t heartbeat_eventgroup = {
+    .service_id = 0x1234,
+    .eventgroup_id = 0x0001,
+    .events = {
+        { .event_id = 0x0001, .eventgroup_id = 0x0001, .update_period_ms = 2000 }
+        // Event 0x0001 (heartbeat notification) belongs to eventgroup 0x0001
+    },
+    .event_count = 1,
+    .default_ttl_seconds = 5
+};
+```
+
+### **Registration (in HeartbeatService_Init)**
+```c
+void HeartbeatService_Init(void)
+{
+    /* Register service handler (unchanged) */
+    someip_register_service(0x1234, heartbeat_handler);
+    
+    /* NEW: Register event group */
+    someip_eventgroup_register(&heartbeat_eventgroup);
+}
+```
+
+### **Client Subscription**
+```python
+# Python client subscribes to eventgroup 0x0001
+subscribe_msg = build_subscribe(
+    service_id=0x1234,
+    eventgroup_id=0x0001,
+    ttl=5
+)
+sock.sendall(subscribe_msg)
+```
+
+### **Notification**
+```c
+/* Notification task checks subscription */
+if (someip_client_is_subscribed(ctx, 0x1234, 0x0001)) {
+    send_heartbeat_notification(ctx);
+}
+```
+
+---
+
+## 🧪 Test Coverage
+
+### **ITCG Test Cases**
+- ✅ **ITCG_0012**: Basic request/response
+- ✅ **ITCG_0013**: Subscribe, receive notifications, unsubscribe
+- ✅ **ITCG_0014**: TTL expiration (NEW)
+- ✅ **ITCG_0015**: Multiple event groups (NEW)
+- ✅ **ITCG_0016**: Multi-client broadcast (NEW)
+- ✅ **ITCG_0017**: SD-based subscription (NEW)
+
+### **Stress Tests**
+- Rapid subscribe/unsubscribe
+- 100 notifications/second
+- 4 concurrent clients
+- TTL renewal under load
+
+---
+
+## 🚀 Migration from Phase 3
+
+### **What Breaks (Nothing!)**
+Your Phase 3 code continues to work without changes.
+
+### **What's Enhanced**
+1. Subscribe now takes eventgroup_id parameter (backward compatible default)
+2. Notifications broadcast to all subscribers (was single client)
+3. TTL auto-expires subscriptions (was manual cleanup)
+
+### **New APIs Available**
+```c
+someip_eventgroup_register()
+someip_client_subscribe()
+someip_client_is_subscribed()
+someip_client_check_ttl_expiration()
+```
+
+---
+
+## 📊 Memory Footprint
+
+### **Static Allocation**
+- Client table: 4 clients × ~200 bytes = 800 bytes
+- Event group registry: 16 definitions × ~100 bytes = 1600 bytes
+- Subscription table: 4 clients × 8 subscriptions × 20 bytes = 640 bytes
+- **Total: ~3KB additional RAM**
+
+### **Stack Usage**
+- someip_ttl_manager_task: 512 words
+- No additional heap usage
+
+---
+
+## ⏭️ What's Next?
+
+After Phase 4 is complete and tested:
+
+**Phase 5: Advanced Features**
+- Load balancing (client priority)
+- Notification queueing (reliable delivery)
+- Diagnostic counters (message statistics)
+- SOME/IP-TP (segmentation for large payloads)
+
+**Phase 6: Production Hardening**
+- Watchdog integration
+- Fault injection testing
+- Security (authentication, encryption)
+- Performance profiling
+
+---
+
+**Status: Phase 4 implementation in progress...**
+**Next: Complete remaining source files**

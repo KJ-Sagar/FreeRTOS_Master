@@ -2,8 +2,9 @@
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
 
-#include "app/demos/demo_someip/someip_protocol.h"
-#include "app/demos/demo_someip/someip_core/someip_server_state.h"
+#include "someip_protocol.h"
+#include "someip_core/someip_server_state.h"
+#include "someip_eventgroup.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -15,20 +16,8 @@
 #define RX_TIMEOUT_MS        100
 #define SOMEIP_HEADER_SIZE  (sizeof(someip_header_t))
 
-/* =========================================================
- * Helper: Find client context by socket
- * ========================================================= */
-static someip_client_ctx_t* find_client_by_socket(Socket_t sock)
-{
-    for (int i = 0; i < SOMEIP_MAX_CLIENTS; i++)
-    {
-        if (g_someip_clients[i].active && g_someip_clients[i].socket == sock)
-        {
-            return &g_someip_clients[i];
-        }
-    }
-    return NULL;
-}
+/* Default event group if not specified in payload */
+#define DEFAULT_EVENTGROUP_ID  0x0001
 
 /* =========================================================
  * SOME/IP client RX task
@@ -36,12 +25,11 @@ static someip_client_ctx_t* find_client_by_socket(Socket_t sock)
 void someip_client_task(void *arg)
 {
     Socket_t client_sock = (Socket_t)arg;
-    someip_client_ctx_t *ctx = find_client_by_socket(client_sock);
+    someip_client_ctx_t *ctx = someip_client_find_by_socket(client_sock);
 
     if (ctx == NULL)
     {
         printf("SOME/IP: ERROR - No client context found!\r\n");
-        /* Task exits naturally - no vTaskDelete needed if not enabled */
         for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
@@ -74,35 +62,24 @@ void someip_client_task(void *arg)
             0
         );
 
-        /* ---------------------------------------------
-         * No data → timeout (NORMAL, NOT DISCONNECT)
-         * --------------------------------------------- */
         if (r == 0)
         {
-            continue;
+            continue;  /* Timeout */
         }
 
-        /* ---------------------------------------------
-         * Real disconnect / socket error
-         * --------------------------------------------- */
         if (r < 0)
         {
             printf("SOME/IP: Client disconnected (socket error)\r\n");
             break;
         }
 
-        /* ---------------------------------------------
-         * Partial header (ignore safely)
-         * --------------------------------------------- */
         if (r != SOMEIP_HEADER_SIZE)
         {
             printf("SOME/IP: Partial header (%d bytes)\r\n", r);
             continue;
         }
 
-        /* ---------------------------------------------
-         * Decode SOME/IP header
-         * --------------------------------------------- */
+        /* Decode SOME/IP header */
         someip_header_t hdr;
         memcpy(&hdr, rx_buf, SOMEIP_HEADER_SIZE);
         someip_ntoh_header(&hdr);
@@ -116,6 +93,10 @@ void someip_client_task(void *arg)
         printf("  Msg Type   : 0x%02x\r\n", hdr.message_type);
         printf("  Ret Code   : 0x%02x\r\n", hdr.return_code);
 
+        /* Update statistics */
+        ctx->messages_received++;
+        ctx->last_activity_tick = xTaskGetTickCount();
+
         /* Update state: valid message received */
         if (ctx->client_state == CLIENT_CONNECTED)
         {
@@ -123,11 +104,8 @@ void someip_client_task(void *arg)
             printf("SOME/IP: State -> CLIENT_ACTIVE\r\n");
         }
 
-        /* ---------------------------------------------
-         * Drain payload if present
-         * --------------------------------------------- */
+        /* Drain payload if present */
         uint32_t payload_len = 0;
-
         if (hdr.length > SOMEIP_HEADER_PAYLOAD_OFFSET)
         {
             payload_len = hdr.length - SOMEIP_HEADER_PAYLOAD_OFFSET;
@@ -155,25 +133,68 @@ void someip_client_task(void *arg)
             }
         }
 
-        /* ---------------------------------------------
-         * Handle subscription methods
-         * --------------------------------------------- */
+        /* Parse event group ID from payload (if present) */
+        uint16_t eventgroup_id = DEFAULT_EVENTGROUP_ID;
+        uint32_t ttl_seconds = 5;  /* Default TTL */
+
+        if (payload_len >= 2)
+        {
+            /* First 2 bytes of payload = eventgroup_id (network byte order) */
+            eventgroup_id = (rx_buf[0] << 8) | rx_buf[1];
+        }
+
+        if (payload_len >= 6)
+        {
+            /* Next 4 bytes = TTL (network byte order) */
+            ttl_seconds = (rx_buf[2] << 24) | (rx_buf[3] << 16) |
+                         (rx_buf[4] << 8) | rx_buf[5];
+        }
+
+        /* Handle subscription methods */
         if (hdr.method_id == SOMEIP_METHOD_SUBSCRIBE)
         {
             printf("SOME/IP: Client SUBSCRIBE received\r\n");
-            ctx->event_state = EVENT_SUBSCRIBED;
-            printf("SOME/IP: Event State -> EVENT_SUBSCRIBED\r\n");
+            printf("  Event Group: 0x%04x\r\n", eventgroup_id);
+            printf("  TTL: %lu seconds\r\n", (unsigned long)ttl_seconds);
+
+            BaseType_t result = someip_client_subscribe(
+                ctx,
+                hdr.service_id,
+                eventgroup_id,
+                ttl_seconds
+            );
+
+            if (result == pdPASS)
+            {
+                printf("SOME/IP: Subscription successful\r\n");
+            }
+            else
+            {
+                printf("SOME/IP: Subscription failed\r\n");
+            }
         }
         else if (hdr.method_id == SOMEIP_METHOD_UNSUBSCRIBE)
         {
             printf("SOME/IP: Client UNSUBSCRIBE received\r\n");
-            ctx->event_state = EVENT_NOT_SUBSCRIBED;
-            printf("SOME/IP: Event State -> EVENT_NOT_SUBSCRIBED\r\n");
+            printf("  Event Group: 0x%04x\r\n", eventgroup_id);
+
+            BaseType_t result = someip_client_unsubscribe(
+                ctx,
+                hdr.service_id,
+                eventgroup_id
+            );
+
+            if (result == pdPASS)
+            {
+                printf("SOME/IP: Unsubscription successful\r\n");
+            }
+            else
+            {
+                printf("SOME/IP: Unsubscription failed\r\n");
+            }
         }
 
-        /* ---------------------------------------------
-         * Send ACK
-         * --------------------------------------------- */
+        /* Send ACK */
         hdr.message_type = SOMEIP_MSG_RESPONSE;
         hdr.return_code  = SOMEIP_RET_OK;
         hdr.length       = SOMEIP_HEADER_PAYLOAD_OFFSET;
@@ -192,22 +213,15 @@ void someip_client_task(void *arg)
         printf("SOME/IP: ACK sent\r\n");
     }
 
-    /* -------------------------------------------------
-     * Cleanup on disconnect
-     * ------------------------------------------------- */
+    /* Cleanup on disconnect */
     printf("SOME/IP: Client RX task exiting\r\n");
 
-    ctx->client_state = CLIENT_DISCONNECTED;
-    ctx->event_state = EVENT_NOT_SUBSCRIBED;
-    ctx->active = pdFALSE;
-
+    someip_client_free(ctx);
     FreeRTOS_closesocket(client_sock);
 
-    /* Only use vTaskDelete if enabled in FreeRTOSConfig.h */
 #if (INCLUDE_vTaskDelete == 1)
     vTaskDelete(NULL);
 #else
-    /* If vTaskDelete not available, task suspends itself indefinitely */
     for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
 #endif
 }

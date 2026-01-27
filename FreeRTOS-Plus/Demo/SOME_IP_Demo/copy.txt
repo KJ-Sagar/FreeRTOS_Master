@@ -1,0 +1,641 @@
+sd_udp_server.c:
+
+#include "sd_udp_server.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "FreeRTOS_Sockets.h"
+#include "FreeRTOS_IP.h"
+#include <string.h>
+
+/* ================= Configuration ================= */
+#define SD_UDP_PORT 30490
+
+/* ================= Services offered ================= */
+static const uint16_t offered_services[] =
+{
+    0x1234, /* Heartbeat */
+    0x1001, /* Sensor */
+    0x1002  /* Engine */
+};
+
+static void sd_udp_task(void *arg)
+{
+    (void)arg;
+
+    Socket_t sock;
+    struct freertos_sockaddr local, remote;
+    socklen_t remote_len = sizeof(remote);
+
+    uint8_t rx_buf[1];
+    uint8_t tx_buf[32];
+    size_t tx_len;
+
+    sock = FreeRTOS_socket(
+        FREERTOS_AF_INET,
+        FREERTOS_SOCK_DGRAM,
+        FREERTOS_IPPROTO_UDP
+    );
+
+    configASSERT(sock != FREERTOS_INVALID_SOCKET);
+
+    /* Bind to SD port */
+    local.sin_port = FreeRTOS_htons(SD_UDP_PORT);
+    local.sin_address.ulIP_IPv4 = FreeRTOS_GetIPAddress();
+
+    FreeRTOS_bind(sock, &local, sizeof(local));
+
+    FreeRTOS_printf((
+        "SD: UDP unicast SD server listening on %u\r\n",
+        SD_UDP_PORT
+    ));
+
+    for (;;)
+    {
+        /* Wait for FindService */
+        if (FreeRTOS_recvfrom(
+                sock,
+                rx_buf,
+                sizeof(rx_buf),
+                0,
+                &remote,
+                &remote_len) <= 0)
+        {
+            continue;
+        }
+
+        FreeRTOS_printf((
+            "SD: FindService from %lxip\r\n",
+            FreeRTOS_ntohl(remote.sin_address.ulIP_IPv4)
+        ));
+
+        /* Build OfferService payload */
+        tx_len = 0;
+        for (size_t i = 0;
+             i < (sizeof(offered_services) / sizeof(offered_services[0]));
+             i++)
+        {
+            uint16_t sid = FreeRTOS_htons(offered_services[i]);
+            memcpy(&tx_buf[tx_len], &sid, sizeof(sid));
+            tx_len += sizeof(sid);
+        }
+
+        /* Unicast reply */
+        FreeRTOS_sendto(
+            sock,
+            tx_buf,
+            tx_len,
+            0,
+            &remote,
+            remote_len
+        );
+
+        FreeRTOS_printf((
+            "SD: Offer sent (%u bytes)\r\n",
+            (unsigned)tx_len
+        ));
+    }
+}
+
+void sd_udp_server_start(void)
+{
+    xTaskCreate(
+        sd_udp_task,
+        "SD_UDP",
+        configMINIMAL_STACK_SIZE,
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        NULL
+    );
+}
+
+
+sd_udp_server.h:
+
+#ifndef SD_UDP_SERVER_H
+#define SD_UDP_SERVER_H
+
+#include "FreeRTOS.h"
+
+/*
+ * Start SOME/IP Service Discovery Offer task
+ */
+void sd_udp_server_start(void);
+
+#endif /* SD_UDP_SERVER_H */
+
+
+someip_core/someip_core.c:
+
+#include "someip_core.h"
+
+/*
+ * Service registry entry
+ */
+typedef struct
+{
+    uint16_t service_id;
+    someip_service_handler_t handler;
+} someip_service_entry_t;
+
+/*
+ * Static service registry (deterministic, no dynamic allocation)
+ */
+static someip_service_entry_t service_table[SOMEIP_MAX_SERVICES] = {0};
+
+BaseType_t someip_register_service(
+    uint16_t service_id,
+    someip_service_handler_t handler)
+{
+    if (handler == NULL)
+        return pdFAIL;
+
+    /* Prevent duplicate registration of same service ID */
+    for (int i = 0; i < SOMEIP_MAX_SERVICES; i++)
+    {
+        if (service_table[i].handler != NULL &&
+            service_table[i].service_id == service_id)
+        {
+            return pdFAIL;
+        }
+    }
+
+    /* Find empty slot */
+    for (int i = 0; i < SOMEIP_MAX_SERVICES; i++)
+    {
+        if (service_table[i].handler == NULL)
+        {
+            service_table[i].service_id = service_id;
+            service_table[i].handler = handler;
+            return pdPASS;
+        }
+    }
+
+    return pdFAIL;
+}
+
+someip_service_handler_t someip_find_service(uint16_t service_id)
+{
+    for (int i = 0; i < SOMEIP_MAX_SERVICES; i++)
+    {
+        if (service_table[i].handler != NULL &&
+            service_table[i].service_id == service_id)
+        {
+            return service_table[i].handler;
+        }
+    }
+    return NULL;
+}
+
+
+heartbeat_service.c:
+
+#include "heartbeat_service.h"
+#include "someip_core/someip_core.h"
+#include "someip_core/someip_types.h"
+#include "FreeRTOS.h"
+#include "FreeRTOS_IP.h"
+#include <string.h>
+
+#define SOMEIP_SERVICE_ID_HEARTBEAT  0x1234U
+#define SOMEIP_METHOD_ID_HEARTBEAT   0x0001U
+#define SOMEIP_SERVICE_ID_SENSOR     0x1001
+
+static BaseType_t heartbeat_handler(
+    uint16_t service_id,
+    uint16_t method_id,
+    const uint8_t *req,
+    uint32_t req_len,
+    uint8_t *resp,
+    uint32_t *resp_len,
+    someip_return_code_t *ret)
+{
+    (void)service_id;
+    (void)req;
+    (void)req_len;
+
+    if (resp == NULL || resp_len == NULL || ret == NULL)
+        return pdFAIL;
+
+    if (method_id != SOMEIP_METHOD_ID_HEARTBEAT)
+    {
+        *ret = SOMEIP_RET_E_UNKNOWN_METHOD;
+        return pdFAIL;
+    }
+
+    uint32_t alive = FreeRTOS_htonl(1U);
+    memcpy(resp, &alive, sizeof(alive));
+    *resp_len = sizeof(alive);
+    *ret = SOMEIP_RET_OK;
+
+    return pdPASS;
+}
+
+void HeartbeatService_Init(void)
+{
+    (void)someip_register_service(
+        SOMEIP_SERVICE_ID_HEARTBEAT,
+        heartbeat_handler);
+}
+
+
+hearbeat_service.h:
+
+#include "heartbeat_service.h"
+#include "someip_core/someip_core.h"
+#include "someip_core/someip_types.h"
+#include "FreeRTOS.h"
+#include "FreeRTOS_IP.h"
+#include <string.h>
+
+#define SOMEIP_SERVICE_ID_HEARTBEAT  0x1234U
+#define SOMEIP_METHOD_ID_HEARTBEAT   0x0001U
+#define SOMEIP_SERVICE_ID_SENSOR     0x1001
+
+static BaseType_t heartbeat_handler(
+    uint16_t service_id,
+    uint16_t method_id,
+    const uint8_t *req,
+    uint32_t req_len,
+    uint8_t *resp,
+    uint32_t *resp_len,
+    someip_return_code_t *ret)
+{
+    (void)service_id;
+    (void)req;
+    (void)req_len;
+
+    if (resp == NULL || resp_len == NULL || ret == NULL)
+        return pdFAIL;
+
+    if (method_id != SOMEIP_METHOD_ID_HEARTBEAT)
+    {
+        *ret = SOMEIP_RET_E_UNKNOWN_METHOD;
+        return pdFAIL;
+    }
+
+    uint32_t alive = FreeRTOS_htonl(1U);
+    memcpy(resp, &alive, sizeof(alive));
+    *resp_len = sizeof(alive);
+    *ret = SOMEIP_RET_OK;
+
+    return pdPASS;
+}
+
+void HeartbeatService_Init(void)
+{
+    (void)someip_register_service(
+        SOMEIP_SERVICE_ID_HEARTBEAT,
+        heartbeat_handler);
+}
+
+
+someip_core/someip_validate.c:
+
+#include "someip_validate.h"
+
+BaseType_t someip_validate_header(const someip_header_t *hdr)
+{
+    if (hdr == NULL)
+        return pdFAIL;
+
+    /* Protocol and interface version checks */
+    if (hdr->protocol_version != SOMEIP_PROTOCOL_VERSION)
+        return pdFAIL;
+
+    if (hdr->interface_version != SOMEIP_INTERFACE_VERSION)
+        return pdFAIL;
+
+    /* Message type sanity */
+    switch ((someip_message_type_t)hdr->message_type)
+    {
+        case SOMEIP_MSG_REQUEST:
+        case SOMEIP_MSG_NOTIFICATION:
+            break;
+        default:
+            return pdFAIL;
+    }
+
+    /* Length must be at least the SOME/IP header payload offset */
+    if (hdr->length < SOMEIP_HEADER_PAYLOAD_OFFSET)
+        return pdFAIL;
+
+    return pdPASS;
+}
+
+
+sensor_service.c:
+
+#include "sensor_service.h"
+#include "someip_core/someip_core.h"
+#include "someip_core/someip_types.h"
+#include "FreeRTOS.h"
+#include "FreeRTOS_IP.h"
+#include <string.h>
+
+/* Service + method IDs */
+#define SENSOR_SERVICE_ID          0x1001
+#define METHOD_GET_TEMPERATURE     0x0001
+
+static BaseType_t sensor_handler(
+    uint16_t service_id,
+    uint16_t method_id,
+    const uint8_t *req,
+    uint32_t req_len,
+    uint8_t *resp,
+    uint32_t *resp_len,
+    someip_return_code_t *ret)
+{
+    (void)service_id;
+    (void)req;
+    (void)req_len;
+
+    if (method_id != METHOD_GET_TEMPERATURE)
+    {
+        *ret = SOMEIP_RET_E_UNKNOWN_METHOD;
+        return pdFAIL;
+    }
+
+    /* Dummy temperature: 25.0°C represented as int32 */
+    int32_t temp = FreeRTOS_htonl(250);
+    memcpy(resp, &temp, sizeof(temp));
+    *resp_len = sizeof(temp);
+    *ret = SOMEIP_RET_OK;
+
+    return pdPASS;
+}
+
+void SensorService_Init(void)
+{
+    someip_register_service(
+        SENSOR_SERVICE_ID,
+        sensor_handler);
+}
+
+
+sensor_service.h:
+
+#ifndef SENSOR_SERVICE_H
+#define SENSOR_SERVICE_H
+
+void SensorService_Init(void);
+
+#endif
+
+
+engine_service.c:
+
+#include "engine_service.h"
+#include "someip_core/someip_core.h"
+#include "someip_core/someip_types.h"
+#include "FreeRTOS.h"
+#include "FreeRTOS_IP.h"
+#include <string.h>
+
+#define ENGINE_SERVICE_ID     0x1002
+#define METHOD_GET_RPM        0x0010
+
+static BaseType_t engine_handler(
+    uint16_t service_id,
+    uint16_t method_id,
+    const uint8_t *req,
+    uint32_t req_len,
+    uint8_t *resp,
+    uint32_t *resp_len,
+    someip_return_code_t *ret)
+{
+    (void)service_id;
+    (void)req;
+    (void)req_len;
+
+    if (method_id != METHOD_GET_RPM)
+    {
+        *ret = SOMEIP_RET_E_UNKNOWN_METHOD;
+        return pdFAIL;
+    }
+
+    uint16_t rpm = FreeRTOS_htons(1800);
+    memcpy(resp, &rpm, sizeof(rpm));
+    *resp_len = sizeof(rpm);
+    *ret = SOMEIP_RET_OK;
+
+    return pdPASS;
+}
+
+void EngineService_Init(void)
+{
+    someip_register_service(
+        ENGINE_SERVICE_ID,
+        engine_handler);
+}
+
+
+engine_service.h:
+
+#ifndef ENGINE_SERVICE_H
+#define ENGINE_SERVICE_H
+
+void EngineService_Init(void);
+
+#endif
+
+
+app/app_main.c:
+
+#include "FreeRTOS.h"
+#include "FreeRTOS_IP.h"
+
+#include "app_config.h"
+#include "app_main.h"
+#include "app/demos/demo_someip/heartbeat_service.h"
+#include "app/demos/demo_someip/sensor_service.h"
+#include "app/demos/demo_someip/engine_service.h"
+#include "demo_someip/demo_someip.h"
+#include "demo_someip/someip_server.h"
+
+#include "task.h"
+
+/*-----------------------------------------------------------*/     
+
+void vApplicationStart( void )
+{
+#if DEMO_SOMEIP
+    FreeRTOS_printf( ( "APP: Starting SOME/IP demo\r\n" ) );
+    demo_someip_start();
+
+#elif DEMO_HEARTBEAT
+    FreeRTOS_printf( ( "APP: Starting HEARTBEAT demo\r\n" ) );
+    vStartTCPHeartbeatDemo();
+
+#elif DEMO_ECHO
+    FreeRTOS_printf( ( "APP: Starting ECHO demo\r\n" ) );
+    vStartEchoDemo();
+
+#else
+    FreeRTOS_printf( ( "APP: No demo selected\r\n" ) );
+#endif
+}
+
+/*-----------------------------------------------------------*/
+
+config/FreeRTOSConfig.h:
+
+/*
+ * FreeRTOS V202212.00
+ * Copyright (C) 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * https://www.FreeRTOS.org
+ * https://github.com/FreeRTOS
+ *
+ */
+
+#ifndef FREERTOS_CONFIG_H
+#define FREERTOS_CONFIG_H
+
+/*-----------------------------------------------------------
+* Application specific definitions.
+*
+* These definitions should be adjusted for your particular hardware and
+* application requirements.
+*
+* THESE PARAMETERS ARE DESCRIBED WITHIN THE 'CONFIGURATION' SECTION OF THE
+* FreeRTOS API DOCUMENTATION AVAILABLE ON THE FreeRTOS.org WEB SITE.
+*
+* See https://www.freertos.org/a00110.html
+*----------------------------------------------------------*/
+
+#define configASSERT_DEFINED    1
+extern void vAssertCalled( void );
+#define configASSERT( x )    if( ( x ) == 0 ) vAssertCalled( )
+
+#define configUSE_PREEMPTION                1
+#define configUSE_TIME_SLICING              1
+
+#define configUSE_IDLE_HOOK                 0
+#define configUSE_TICK_HOOK                 0
+#define configCPU_CLOCK_HZ                  ( ( unsigned long ) 20000000 )
+#define configTICK_RATE_HZ                  ( ( TickType_t ) 1000 )
+#define configMINIMAL_STACK_SIZE            ( ( unsigned short ) 2000 )
+#define configTOTAL_HEAP_SIZE               ( ( size_t ) ( 279000 ) )
+#define configMAX_TASK_NAME_LEN             ( 10 )
+#define configUSE_TRACE_FACILITY            0
+#define configUSE_16_BIT_TICKS              0
+#define configIDLE_SHOULD_YIELD             0
+#define configMAX_PRIORITIES                ( 10 )
+#define configUSE_COUNTING_SEMAPHORES       1
+#define configSUPPORT_DYNAMIC_ALLOCATION    1
+
+/* Set the following definitions to 1 to include the API function, or zero
+ * to exclude the API function. */
+
+#define configUSE_MALLOC_FAILED_HOOK            1
+#define configUSE_MUTEXES                       1
+#define configUSE_RECURSIVE_MUTEXES             1
+#define INCLUDE_vTaskPrioritySet                0
+#define INCLUDE_uxTaskPriorityGet               0
+#define INCLUDE_vTaskDelete                     1
+#define INCLUDE_vTaskCleanUpResources           0
+#define INCLUDE_vTaskSuspend                    0
+#define INCLUDE_vTaskDelayUntil                 0
+#define INCLUDE_vTaskDelay                      1
+
+
+#define configKERNEL_INTERRUPT_PRIORITY         255
+
+/* !!!! configMAX_SYSCALL_INTERRUPT_PRIORITY must not be set to zero !!!!
+ * See http://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html. */
+#define configMAX_SYSCALL_INTERRUPT_PRIORITY    4
+#define configMAC_INTERRUPT_PRIORITY            5
+
+
+/* networking definitions */
+#define configMAC_ISR_SIMULATOR_PRIORITY    ( configMAX_PRIORITIES - 2 )
+#define ipconfigUSE_NETWORK_EVENT_HOOK      1
+#define configNETWORK_INTERFACE_TO_USE      1L
+
+/* The address of an echo server that will be used by the two demo echo client
+ * tasks.
+ * http://www.freertos.org/FreeRTOS-Plus/FreeRTOS_Plus_TCP/TCP_Echo_Clients.html
+ * http://www.freertos.org/FreeRTOS-Plus/FreeRTOS_Plus_TCP/UDP_Echo_Clients.html */
+
+/* When the user uses User Mode Networking, the QEMU virtual machine
+ * automatically starts up an internal DHCP server on an internal
+ * network address in the subnet 10.0.2.0/24. This DHCP server allocates IPs to
+ * Guest OSes in the subnet 10.0.2.0/24 starting from 10.0.2.15. The QEMU VM
+ * also sets up 10.0.2.2 as the "gateway" IP address. Connecting to a port on
+ * this "gateway" IP address 10.0.2.2 from inside the guest connects to that
+ * port on the host machine. For example, connecting to the "gateway" IP address
+ * 10.0.2.2 on port 7 from inside the guest will connect to the host machine on
+ * port 7. See the following links for more details:
+ * https://wiki.qemu.org/Documentation/Networking
+ * http://bsdwiki.reedmedia.net/wiki/networking_qemu_virtual_bsd_systems.html */
+
+#define configECHO_SERVER_ADDR0    10
+#define configECHO_SERVER_ADDR1    0
+#define configECHO_SERVER_ADDR2    0
+#define configECHO_SERVER_ADDR3    1
+
+/* Default MAC address configuration.  The demo creates a virtual network
+ * connection that uses this MAC address by accessing the raw Ethernet/WiFi data
+ * to and from a real network connection on the host PC.  See the
+ * configNETWORK_INTERFACE_TO_USE definition above for information on how to
+ * configure the real network connection to use. */
+
+#define configMAC_ADDR0    0x52
+#define configMAC_ADDR1    0x54
+#define configMAC_ADDR2    0x00
+#define configMAC_ADDR3    0x12
+#define configMAC_ADDR4    0x34
+#define configMAC_ADDR5    0xAD
+
+/* Default IP address configuration.  Used if ipconfigUSE_DHCP is set to 0, or
+ * ipconfigUSE_DHCP is set to 1 but a DHCP server cannot be contacted. */
+
+#define configIP_ADDR0    10
+#define configIP_ADDR1    0
+#define configIP_ADDR2    0
+#define configIP_ADDR3    2
+
+/* Default gateway IP address configuration.  Used if ipconfigUSE_DHCP is set to
+ * 0, or ipconfigUSE_DHCP is set to 1 but a DHCP server cannot be contacted. */
+
+#define configGATEWAY_ADDR0    10
+#define configGATEWAY_ADDR1    0
+#define configGATEWAY_ADDR2    0
+#define configGATEWAY_ADDR3    1
+
+/* Default DNS server configuration.  OpenDNS addresses are 208.67.222.222 and
+ * 208.67.220.220.  Used if ipconfigUSE_DHCP is set to 0, or ipconfigUSE_DHCP is set
+ * to 1 but a DHCP server cannot be contacted.*/
+
+#define configDNS_SERVER_ADDR0    127
+#define configDNS_SERVER_ADDR1    0
+#define configDNS_SERVER_ADDR2    0
+#define configDNS_SERVER_ADDR3    53
+
+/* Default netmask configuration.  Used if ipconfigUSE_DHCP is set to 0, or
+ * ipconfigUSE_DHCP is set to 1 but a DHCP server cannot be contacted. */
+#define configNET_MASK0           255
+#define configNET_MASK1           255
+#define configNET_MASK2           255
+#define configNET_MASK3           0
+
+/* The UDP port to which print messages are sent. */
+#define configPRINT_PORT          ( 15000 )
+#endif /* FREERTOS_CONFIG_H */

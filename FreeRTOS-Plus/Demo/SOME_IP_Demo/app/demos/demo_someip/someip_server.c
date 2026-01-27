@@ -5,38 +5,27 @@
 #include "FreeRTOS_Sockets.h"
 #include "FreeRTOS_IP.h"
 #include "someip_core/someip_server_state.h"
-#include "app/demos/demo_someip/someip_core/someip_client_task.c"
 
 #include <string.h>
 
 /* =========================================================
- * Global client table (definition)
- * ========================================================= */
-someip_client_ctx_t g_someip_clients[SOMEIP_MAX_CLIENTS];
-
-/* =========================================================
- * Forward declarations (NO .c includes!)
+ * Forward declarations
  * ========================================================= */
 extern void someip_client_task(void *arg);
 extern void someip_notification_task(void *arg);
+extern void someip_ttl_manager_start(void);
 
 static void someip_server_task(void *arg);
-static someip_client_ctx_t* allocate_client_slot(Socket_t sock);
 
 /* =========================================================
  * Public entry
  * ========================================================= */
 void someip_server_start(void)
 {
-    /* Initialize client table */
-    memset(g_someip_clients, 0, sizeof(g_someip_clients));
-
-    for (int i = 0; i < SOMEIP_MAX_CLIENTS; i++)
-    {
-        g_someip_clients[i].active = pdFALSE;
-        g_someip_clients[i].client_state = CLIENT_DISCONNECTED;
-        g_someip_clients[i].event_state = EVENT_NOT_SUBSCRIBED;
-    }
+    /* Initialize client table with mutexes */
+    someip_client_table_init();
+    
+    FreeRTOS_printf(("SOME/IP: Client table initialized\r\n"));
 
     /* Start server task */
     xTaskCreate(
@@ -48,7 +37,7 @@ void someip_server_start(void)
         NULL
     );
 
-    /* Start notification timer task */
+    /* Start notification broadcaster */
     xTaskCreate(
         someip_notification_task,
         "SOMEIP_NOTIFY",
@@ -57,30 +46,9 @@ void someip_server_start(void)
         tskIDLE_PRIORITY + 1,
         NULL
     );
-}
-
-/* =========================================================
- * Helper: Allocate client slot
- * ========================================================= */
-static someip_client_ctx_t* allocate_client_slot(Socket_t sock)
-{
-    for (int i = 0; i < SOMEIP_MAX_CLIENTS; i++)
-    {
-        if (!g_someip_clients[i].active)
-        {
-            g_someip_clients[i].socket = sock;
-            g_someip_clients[i].active = pdTRUE;
-            g_someip_clients[i].client_state = CLIENT_DISCONNECTED;
-            g_someip_clients[i].event_state = EVENT_NOT_SUBSCRIBED;
-            g_someip_clients[i].last_activity_tick = xTaskGetTickCount();
-            
-            FreeRTOS_printf(("SOME/IP: Allocated client slot %d\r\n", i));
-            return &g_someip_clients[i];
-        }
-    }
     
-    FreeRTOS_printf(("SOME/IP: ERROR - No free client slots!\r\n"));
-    return NULL;
+    /* Start TTL expiration manager */
+    someip_ttl_manager_start();
 }
 
 /* =========================================================
@@ -120,7 +88,7 @@ static void someip_server_task(void *arg)
         FreeRTOS_printf(("SOME/IP: Client connected\r\n"));
 
         /* Allocate client context */
-        someip_client_ctx_t *ctx = allocate_client_slot(client_sock);
+        someip_client_ctx_t *ctx = someip_client_allocate(client_sock);
         
         if (ctx == NULL)
         {
@@ -128,6 +96,8 @@ static void someip_server_task(void *arg)
             FreeRTOS_closesocket(client_sock);
             continue;
         }
+
+        FreeRTOS_printf(("SOME/IP: Allocated client slot\r\n"));
 
         /* Spawn RX task for this client */
         xTaskCreate(
