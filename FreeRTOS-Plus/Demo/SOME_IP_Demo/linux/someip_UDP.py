@@ -1,244 +1,169 @@
 #!/usr/bin/env python3
+"""
+SOME/IP Python Client - Fully Persistent Connection
+Zero reconnects, single TCP connection for entire session
+"""
 import socket
 import struct
 import threading
 import time
-import sys
 from datetime import datetime
 
-# ==========================================================
-# Logging helpers
-# ==========================================================
+# Configuration
+SERVER_IP = "10.0.0.2"
+SERVER_PORT = 30509
+SD_UDP_PORT = 30490
+
+# SOME/IP Constants
+SOMEIP_MSG_REQUEST = 0x00
+SOMEIP_MSG_NOTIFICATION = 0x02
+SOMEIP_MSG_RESPONSE = 0x80
+
+SOMEIP_PROTOCOL_VERSION = 0x01
+SOMEIP_INTERFACE_VERSION = 0x01
+CLIENT_ID = 0x0001
+
+SERVICE_HEARTBEAT = 0x1234
+METHOD_HEARTBEAT = 0x0001
+METHOD_SUBSCRIBE = 0x0100
+METHOD_UNSUBSCRIBE = 0x0101
+EVENTGROUP_STATUS = 0x0001
+
+HEADER_FMT = "!HHIHHBBBB"
+HEADER_SIZE = struct.calcsize(HEADER_FMT)
+
+session_id = 1
+running = True
+
 def ts():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
 def log(msg):
     print(f"[{ts()}] {msg}", flush=True)
 
-def hexdump(data):
-    return " ".join(f"{b:02X}" for b in data)
-
-# ==========================================================
-# Network
-# ==========================================================
-SERVER_IP   = "10.0.0.2"
-SERVER_PORT = 30509
-SD_UDP_PORT = 30490
-
-# ==========================================================
-# SOME/IP constants
-# ==========================================================
-SOMEIP_MSG_REQUEST      = 0x00
-SOMEIP_MSG_NOTIFICATION = 0x02
-SOMEIP_MSG_RESPONSE     = 0x80
-SOMEIP_MSG_ERROR        = 0x81
-
-SOMEIP_PROTOCOL_VERSION  = 0x01
-SOMEIP_INTERFACE_VERSION = 0x01
-
-CLIENT_ID = 0x0001
-
-# ==========================================================
-# Services / Methods
-# ==========================================================
-SERVICE_HEARTBEAT = 0x1234
-SERVICE_SENSOR    = 0x1001
-SERVICE_ENGINE    = 0x1002
-
-METHOD_HEARTBEAT   = 0x0001
-METHOD_SUBSCRIBE   = 0x0100
-METHOD_UNSUBSCRIBE = 0x0101
-
-# ==========================================================
-# SOME/IP header
-# ==========================================================
-HEADER_FMT  = "!HHIHHBBBB"
-HEADER_SIZE = struct.calcsize(HEADER_FMT)
-
-# ==========================================================
-# Global state
-# ==========================================================
-session_id = 1
-running = True
-
-# ==========================================================
-# Helpers
-# ==========================================================
 def recv_exact(sock, length):
     data = b""
     while len(data) < length:
-        chunk = sock.recv(length - len(data))
-        if not chunk:
+        try:
+            chunk = sock.recv(length - len(data))
+            if not chunk:
+                return None
+            data += chunk
+        except socket.timeout:
             return None
-        data += chunk
     return data
 
-def build_request(service_id, method_id, payload=b""):
+def build_someip_header(service_id, method_id, msg_type, payload_len=0):
     global session_id
-
-    length = 8 + len(payload)
-
-    hdr = struct.pack(
-        HEADER_FMT,
-        service_id,
-        method_id,
-        length,
-        CLIENT_ID,
-        session_id,
-        SOMEIP_PROTOCOL_VERSION,
-        SOMEIP_INTERFACE_VERSION,
-        SOMEIP_MSG_REQUEST,
-        0x00
-    )
-
-    log(f"TX BUILD: SID=0x{service_id:04X} "
-        f"MID=0x{method_id:04X} "
-        f"SESSION={session_id} "
-        f"LEN={length}")
-
-    log(f"TX HEADER RAW: {hexdump(hdr)}")
-
+    length = 8 + payload_len
+    hdr = struct.pack(HEADER_FMT, service_id, method_id, length,
+                      CLIENT_ID, session_id, SOMEIP_PROTOCOL_VERSION,
+                      SOMEIP_INTERFACE_VERSION, msg_type, 0x00)
     session_id = (session_id + 1) & 0xFFFF
+    return hdr
+
+def build_request(service_id, method_id, payload=b""):
+    hdr = build_someip_header(service_id, method_id, SOMEIP_MSG_REQUEST, len(payload))
+    log(f"TX REQUEST: SID=0x{service_id:04X} MID=0x{method_id:04X}")
     return hdr + payload
 
-# ==========================================================
-# Service Discovery – ACTIVE (Unicast FindService)
-# ==========================================================
-def sd_find_services():
-    log("SD: Creating UDP socket")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(2.0)
+def build_subscribe(service_id, eventgroup_id, ttl_seconds=10):
+    payload = struct.pack("!HI", eventgroup_id, ttl_seconds)
+    hdr = build_someip_header(service_id, METHOD_SUBSCRIBE, SOMEIP_MSG_REQUEST, len(payload))
+    log(f"TX SUBSCRIBE: SID=0x{service_id:04X} EG=0x{eventgroup_id:04X} TTL={ttl_seconds}s")
+    return hdr + payload
 
-    log("SD: Sending FindService (unicast)")
-    try:
-        sock.sendto(b"\x00", (SERVER_IP, SD_UDP_PORT))
-        data, addr = sock.recvfrom(256)
-    except socket.timeout:
-        log("SD: No Service Discovery response")
-        sock.close()
-        return
+def build_unsubscribe(service_id, eventgroup_id):
+    payload = struct.pack("!H", eventgroup_id)
+    hdr = build_someip_header(service_id, METHOD_UNSUBSCRIBE, SOMEIP_MSG_REQUEST, len(payload))
+    log(f"TX UNSUBSCRIBE: SID=0x{service_id:04X} EG=0x{eventgroup_id:04X}")
+    return hdr + payload
 
-    log(f"SD: Offer received from {addr[0]}")
-    log("SD: Services offered:")
-
-    for i in range(0, len(data), 2):
-        sid = struct.unpack_from("!H", data, i)[0]
-        log(f"  -> Service ID: 0x{sid:04X}")
-
-    sock.close()
-    log("SD: Socket closed")
-
-# ==========================================================
-# Receiver thread (TCP SOME/IP)
-# ==========================================================
 def receiver(sock):
     global running
-
     log("RX THREAD: Started")
-
+    
     while running:
         hdr_raw = recv_exact(sock, HEADER_SIZE)
         if hdr_raw is None:
-            log("RX THREAD: recv_exact returned None (server closed connection)")
+            if running:
+                log("RX THREAD: Connection closed")
             running = False
             break
-
-        log(f"RX HEADER RAW: {hexdump(hdr_raw)}")
-
-        (
-            service_id,
-            method_id,
-            length,
-            client_id,
-            session,
-            proto,
-            iface,
-            msg_type,
-            ret
-        ) = struct.unpack(HEADER_FMT, hdr_raw)
-
-        log(f"RX HEADER: "
-            f"SID=0x{service_id:04X} "
-            f"MID=0x{method_id:04X} "
-            f"SESSION={session} "
-            f"LEN={length} "
-            f"TYPE=0x{msg_type:02X} "
-            f"RET=0x{ret:02X}")
-
-        if length < 8:
-            log("RX ERROR: Invalid SOME/IP length")
-            continue
-
+        
+        (service_id, method_id, length, client_id, session,
+         proto, iface, msg_type, ret) = struct.unpack(HEADER_FMT, hdr_raw)
+        
         payload_len = length - 8
         payload = recv_exact(sock, payload_len) if payload_len > 0 else b""
-
-        if payload_len > 0:
-            log(f"RX PAYLOAD RAW: {hexdump(payload)}")
-
-        # ---------- NOTIFICATION ----------
+        
         if msg_type == SOMEIP_MSG_NOTIFICATION:
             if service_id == SERVICE_HEARTBEAT and len(payload) == 4:
                 alive = struct.unpack("!I", payload)[0]
-                log(f"RX NOTIFY: Heartbeat alive = {alive}")
-            else:
-                log("RX NOTIFY: Unknown notification")
-            continue
+                log(f"RX NOTIFICATION: Heartbeat={alive}")
+        elif msg_type == SOMEIP_MSG_RESPONSE:
+            log(f"RX RESPONSE: SID=0x{service_id:04X} MID=0x{method_id:04X}")
+        elif msg_type == SOMEIP_MSG_REQUEST:
+            log(f"RX ERROR: Unexpected REQUEST from server")
+    
+    log("RX THREAD: Exited")
 
-        # ---------- ERROR ----------
-        if msg_type == SOMEIP_MSG_ERROR or ret != 0:
-            log(f"RX ERROR: service=0x{service_id:04X} "
-                f"method=0x{method_id:04X}")
-            continue
-
-        # ---------- RESPONSE ----------
-        log("RX RESPONSE: ACK received")
-
-    log("RX THREAD: Exiting")
-
-# ==========================================================
-# Main
-# ==========================================================
-log("CLIENT: Starting")
-time.sleep(2)
-
-# ---- Phase 1: Service Discovery ----
-sd_find_services()
-time.sleep(1)
-
-# ---- Phase 2: TCP SOME/IP ----
-log(f"CLIENT: Connecting to {SERVER_IP}:{SERVER_PORT}")
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect((SERVER_IP, SERVER_PORT))
-log("CLIENT: TCP connected")
-
-rx_thread = threading.Thread(
-    target=receiver,
-    args=(sock,),
-    daemon=True
-)
-rx_thread.start()
-
-log("CLIENT: Sending SUBSCRIBE")
-sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_SUBSCRIBE))
-
-try:
-    while running:
-        time.sleep(5)
-        log("CLIENT: Sending heartbeat REQUEST")
-        sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_HEARTBEAT))
-
-except KeyboardInterrupt:
-    log("CLIENT: KeyboardInterrupt received")
-
-finally:
-    log("CLIENT: Sending UNSUBSCRIBE")
+def main():
+    global running
+    
+    log("=== Phase 4 Persistent Client ===")
+    time.sleep(1)
+    
+    # Connect
+    log(f"Connecting to {SERVER_IP}:{SERVER_PORT}")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(5.0)
+    
     try:
-        sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_UNSUBSCRIBE))
-        time.sleep(0.5)
-    except OSError as e:
-        log(f"CLIENT: Socket error during unsubscribe: {e}")
-
+        sock.connect((SERVER_IP, SERVER_PORT))
+        log("✓ Connected (single persistent connection)")
+    except Exception as e:
+        log(f"✗ Connection failed: {e}")
+        return
+    
+    # Start receiver
+    rx_thread = threading.Thread(target=receiver, args=(sock,), daemon=True)
+    rx_thread.start()
+    time.sleep(0.1)
+    
+    # Subscribe
+    log("Subscribing to heartbeat eventgroup...")
+    sock.sendall(build_subscribe(SERVICE_HEARTBEAT, EVENTGROUP_STATUS, ttl_seconds=15))
+    time.sleep(0.5)
+    
+    # Send periodic requests on SAME connection
+    try:
+        for i in range(3):
+            time.sleep(5)
+            if not running:
+                break
+            log(f"Sending heartbeat request #{i+1} (same connection)")
+            sock.sendall(build_request(SERVICE_HEARTBEAT, METHOD_HEARTBEAT))
+    
+    except KeyboardInterrupt:
+        log("KeyboardInterrupt")
+    except (BrokenPipeError, ConnectionResetError) as e:
+        log(f"Connection error: {e}")
+        running = False
+    
+    # Clean unsubscribe
+    if running:
+        log("Unsubscribing...")
+        try:
+            sock.sendall(build_unsubscribe(SERVICE_HEARTBEAT, EVENTGROUP_STATUS))
+            time.sleep(1.0)
+        except Exception as e:
+            log(f"Unsubscribe error: {e}")
+    
     running = False
     sock.close()
-    log("CLIENT: Socket closed")
-    log("CLIENT: Exit")
+    log("✓ Connection closed")
+    log("=== Test Complete ===")
+
+if __name__ == "__main__":
+    main()

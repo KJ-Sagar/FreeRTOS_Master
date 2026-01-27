@@ -4,22 +4,16 @@
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
 #include "FreeRTOS_IP.h"
-#include "someip_core/someip_client_task.c"
+#include "app/demos/demo_someip/someip_core/someip_server_state.h"
 #include <string.h>
-#include "someip_core/someip_server_state.h"
 
-someip_client_ctx_t g_someip_clients[SOMEIP_MAX_CLIENTS];
-
+/* =========================================================
+ * Forward declarations
+ * ========================================================= */
 extern void someip_client_task(void *arg);
+extern void someip_notification_task(void *arg);
+extern void someip_ttl_manager_start(void);
 
-/* =========================================================
- * Configuration
- * ========================================================= */
-#define SOMEIP_MAX_CLIENTS  4
-
-/* =========================================================
- * Forward declaration
- * ========================================================= */
 static void someip_server_task(void *arg);
 
 /* =========================================================
@@ -27,6 +21,12 @@ static void someip_server_task(void *arg);
  * ========================================================= */
 void someip_server_start(void)
 {
+    /* Initialize client table with mutexes */
+    someip_client_table_init();
+    
+    FreeRTOS_printf(("SOME/IP: Client table initialized\r\n"));
+
+    /* Start server task */
     xTaskCreate(
         someip_server_task,
         "SOMEIP_SERVER",
@@ -35,14 +35,23 @@ void someip_server_start(void)
         tskIDLE_PRIORITY + 2,
         NULL
     );
+
+    /* Start notification broadcaster */
+    xTaskCreate(
+        someip_notification_task,
+        "SOMEIP_NOTIFY",
+        configMINIMAL_STACK_SIZE * 2,
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        NULL
+    );
+    
+    /* Start TTL expiration manager */
+    someip_ttl_manager_start();
 }
 
 /* =========================================================
  * SOME/IP TCP server task
- *
- * Phase 2B (Step 1):
- *  - Only accepts connections
- *  - Does NOT process client data
  * ========================================================= */
 static void someip_server_task(void *arg)
 {
@@ -77,14 +86,26 @@ static void someip_server_task(void *arg)
 
         FreeRTOS_printf(("SOME/IP: Client connected\r\n"));
 
-xTaskCreate(
-    someip_client_task,
-    "SOMEIP_CLIENT",
-    configMINIMAL_STACK_SIZE * 4,
-    (void *)client_sock,
-    tskIDLE_PRIORITY + 1,
-    NULL
-);
+        /* Allocate client context */
+        someip_client_ctx_t *ctx = someip_client_allocate(client_sock);
+        
+        if (ctx == NULL)
+        {
+            FreeRTOS_printf(("SOME/IP: Rejecting client (no slots)\r\n"));
+            FreeRTOS_closesocket(client_sock);
+            continue;
+        }
 
+        FreeRTOS_printf(("SOME/IP: Allocated client slot\r\n"));
+
+        /* Spawn RX task for this client */
+        xTaskCreate(
+            someip_client_task,
+            "SOMEIP_CLIENT",
+            configMINIMAL_STACK_SIZE * 4,
+            (void *)client_sock,
+            tskIDLE_PRIORITY + 1,
+            &ctx->rx_task
+        );
     }
 }
