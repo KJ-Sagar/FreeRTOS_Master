@@ -2,9 +2,9 @@
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
 
-#include "someip_protocol.h"
-#include "someip_core/someip_server_state.h"
-#include "someip_eventgroup.h"
+#include "app/demos/demo_someip/someip_protocol.h"
+#include "app/demos/demo_someip/someip_core/someip_server_state.h"
+#include "app/demos/demo_someip/someip_core/someip_eventgroup.h"
 
 #include <stdio.h>
 #include <stdint.h>

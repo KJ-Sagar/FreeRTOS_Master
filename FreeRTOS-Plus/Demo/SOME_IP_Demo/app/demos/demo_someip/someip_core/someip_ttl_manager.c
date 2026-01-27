@@ -2,7 +2,7 @@
 #include "task.h"
 #include "someip_server_state.h"
 #include "FreeRTOS_IP.h"
-
+#include "app/demos/demo_someip/someip_core/someip_server_state.h"
 /* =========================================================
  * Configuration
  * ========================================================= */

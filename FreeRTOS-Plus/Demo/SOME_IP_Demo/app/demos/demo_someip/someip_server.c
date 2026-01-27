@@ -4,8 +4,7 @@
 #include "task.h"
 #include "FreeRTOS_Sockets.h"
 #include "FreeRTOS_IP.h"
-#include "someip_core/someip_server_state.h"
-
+#include "app/demos/demo_someip/someip_core/someip_server_state.h"
 #include <string.h>
 
 /* =========================================================

@@ -1,7 +1,7 @@
 #include "heartbeat_service.h"
 #include "someip_core/someip_core.h"
 #include "someip_core/someip_types.h"
-#include "someip_eventgroup.h"
+#include "app/demos/demo_someip/someip_core/someip_eventgroup.h"
 #include "FreeRTOS.h"
 #include "FreeRTOS_IP.h"
 #include <string.h>
