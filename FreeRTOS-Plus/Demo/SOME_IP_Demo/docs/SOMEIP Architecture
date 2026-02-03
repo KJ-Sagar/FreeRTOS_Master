@@ -247,8 +247,8 @@ Client                  Network              Server
 │  • Server task               │ 4 KB                     │
 │  • Client RX tasks (4×4KB)   │ 16 KB                    │
 │  • Notification task         │ 2 KB                     │
-│  • TTL manager              │ 2 KB                      │
-│  • TCP/IP tasks             │ 16 KB                     │
+│  • TTL manager               │ 2 KB                     │
+│  • TCP/IP tasks              │ 16 KB                    │
 ├──────────────────────────────┼──────────────────────────┤
 │ Global BSS Data:             │                          │
 │  • Client table (4×200B)     │ 800 B                    │
